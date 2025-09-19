@@ -1,4 +1,3 @@
-// components/schemes/SchemesClient.tsx
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
@@ -46,14 +45,12 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
   const params = useSearchParams();
   const router = useRouter();
 
-  // Read URL state
   const qParam = params.get("q") ?? "";
   const catParam = params.getAll("category");
   const tagParam = params.getAll("tag");
-  const mandatoryParam = params.get("mandatory"); // "true" | "false" | null
+  const mandatoryParam = params.get("mandatory");
   const openParam = params.get("open") ?? "";
 
-  // Local state
   const [q, setQ] = useState(qParam);
   const [activeCats, setActiveCats] = useState<string[]>(catParam);
   const [activeTags, setActiveTags] = useState<string[]>(tagParam);
@@ -63,7 +60,6 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
   const [open, setOpen] = useState(openParam);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Sync URL (debounced)
   useEffect(() => {
     const t = setTimeout(() => {
       const usp = new URLSearchParams();
@@ -77,7 +73,6 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
     return () => clearTimeout(t);
   }, [q, activeCats, activeTags, mandatory, open, router]);
 
-  // Derive facet options
   const allCategories = useMemo(
     () => Array.from(new Set(initialSchemes.map((s) => s.category))).sort(),
     [initialSchemes]
@@ -87,7 +82,6 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
     [initialSchemes]
   );
 
-  // Filter logic
   const filtered = useMemo(() => {
     const qLower = q.toLowerCase();
     return initialSchemes.filter((s) => {
@@ -111,7 +105,6 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
 
   const byCat = useMemo(() => groupBy(filtered, (s) => s.category), [filtered]);
 
-  // Actions
   function toggleCat(c: string) {
     setActiveCats((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
   }
@@ -132,9 +125,9 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
   }, []);
 
   return (
-    <div className="space-y-4">
-      {/* Sticky search + filter toggle */}
-      <div className="sticky top-0 z-20 bg-white/80 backdrop-blur border-b">
+    <div className="relative z-10">
+      {/* Sticky glass bar */}
+      <div className="sticky top-0 z-20 border-b border-[color:var(--border-1)] bg-[color:var(--bg-0)]/65 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
           <div className="flex-1">
             <input
@@ -142,14 +135,14 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
               placeholder="Search by title, code, authority, tags…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2"
+              className="w-full rounded-lg px-3 py-2 bg-[color:var(--glass)] border border-[color:var(--border-1)] text-[color:var(--text-1)] placeholder-[color:var(--text-2)] focus:outline-none focus:ring-2 focus:ring-[color:var(--focus)]"
             />
           </div>
           <select
             aria-label="Mandatory filter"
             value={mandatory}
             onChange={(e) => setMandatory(e.target.value as any)}
-            className="border rounded-lg px-3 py-2 hidden sm:block"
+            className="hidden sm:block rounded-lg px-3 py-2 bg-[color:var(--glass)] border border-[color:var(--border-1)] text-[color:var(--text-1)] focus:outline-none focus:ring-2 focus:ring-[color:var(--focus)]"
           >
             <option value="all">All</option>
             <option value="true">Mandatory</option>
@@ -157,43 +150,34 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
           </select>
           <button
             onClick={() => setDrawerOpen(true)}
-            className="sm:hidden px-3 py-2 border rounded-lg"
+            className="sm:hidden px-3 py-2 rounded-lg bg-[color:var(--glass)] border border-[color:var(--border-1)]"
             aria-label="Open filters"
           >
             Filters
           </button>
-          <button onClick={clearAll} className="px-3 py-2 border rounded-lg hidden sm:block">
+          <button onClick={clearAll} className="hidden sm:block px-3 py-2 rounded-lg bg-[color:var(--glass)] border border-[color:var(--border-1)]">
             Clear all
           </button>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 pb-10">
-        {/* Active filters summary */}
+      <div className="max-w-7xl mx-auto px-4 pb-12 pt-6">
         {(activeCats.length || activeTags.length || mandatory !== "all" || q) ? (
-          <div className="flex flex-wrap items-center gap-2 mb-3">
-            <span className="text-sm text-gray-600">Active filters:</span>
-            {q ? <span className="text-xs bg-gray-100 px-2 py-1 rounded-full">q: “{q}”</span> : null}
+          <div className="flex flex-wrap items-center gap-2 mb-4 text-[color:var(--text-2)]">
+            <span className="text-sm">Active filters:</span>
+            {q ? <span className="text-xs px-2 py-1 rounded-full bg-[color:var(--chip)] border border-[color:var(--chip-border)]">q: “{q}”</span> : null}
             {mandatory !== "all" ? (
-              <span className="text-xs bg-gray-100 px-2 py-1 rounded-full">
+              <span className="text-xs px-2 py-1 rounded-full bg-[color:var(--chip)] border border-[color:var(--chip-border)]">
                 {mandatory === "true" ? "mandatory" : "voluntary"}
               </span>
             ) : null}
             {activeCats.map((c) => (
-              <button
-                key={c}
-                onClick={() => toggleCat(c)}
-                className="text-xs bg-gray-100 px-2 py-1 rounded-full"
-              >
+              <button key={c} onClick={() => toggleCat(c)} className="text-xs px-2 py-1 rounded-full bg-[color:var(--chip)] border border-[color:var(--chip-border)]">
                 {c} ×
               </button>
             ))}
             {activeTags.map((t) => (
-              <button
-                key={t}
-                onClick={() => toggleTag(t)}
-                className="text-xs bg-gray-100 px-2 py-1 rounded-full"
-              >
+              <button key={t} onClick={() => toggleTag(t)} className="text-xs px-2 py-1 rounded-full bg-[color:var(--chip)] border border-[color:var(--chip-border)]">
                 #{t} ×
               </button>
             ))}
@@ -201,8 +185,7 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
           </div>
         ) : null}
 
-        <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-6">
-          {/* Sidebar filters (desktop) */}
+        <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-6">
           <aside className="hidden md:block">
             <FilterPanel
               allCategories={allCategories}
@@ -217,16 +200,15 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
             />
           </aside>
 
-          {/* Results */}
-          <main className="space-y-6">
+          <main className="space-y-8">
             {Object.keys(byCat).length === 0 ? (
-              <div className="text-sm text-gray-600 border rounded-xl p-6 bg-white">
+              <div className="text-sm text-[color:var(--text-2)] border border-[color:var(--border-1)] rounded-xl p-6 bg-[color:var(--glass)]">
                 No results match your filters.
               </div>
             ) : (
               Object.entries(byCat).map(([category, items]) => (
-                <section key={category} className="space-y-3">
-                  <h2 className="text-xl font-semibold">{category}</h2>
+                <section key={category} className="space-y-4">
+                  <h2 className="text-2xl font-semibold">{category}</h2>
                   <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {items.map((s) => (
                       <ExpandableCard
@@ -247,12 +229,8 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
       {/* Mobile filter drawer */}
       {drawerOpen && (
         <div className="fixed inset-0 z-30">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setDrawerOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="absolute right-0 top-0 h-full w-[85%] max-w-sm bg-white shadow-xl p-4 overflow-y-auto">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} aria-hidden="true" />
+          <div className="absolute right-0 top-0 h-full w-[85%] max-w-sm bg-[color:var(--bg-1)] border-l border-[color:var(--border-1)] shadow-xl p-4 overflow-y-auto">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-medium">Filters</h3>
               <button onClick={() => setDrawerOpen(false)} className="text-sm underline">Close</button>

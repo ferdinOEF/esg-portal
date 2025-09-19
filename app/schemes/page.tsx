@@ -4,8 +4,8 @@ import SchemesClient from "@/components/schemes/SchemesClient";
 import { Suspense } from "react";
 import SchemesSkeleton from "@/components/schemes/SchemesSkeleton";
 
-export const runtime = "nodejs";   // Prisma needs Node runtime on Vercel
-export const revalidate = 300;     // cache; low-churn content
+export const runtime = "nodejs";
+export const revalidate = 300;
 
 export default async function SchemesPage() {
   const schemes = await prisma.scheme.findMany({
@@ -19,8 +19,10 @@ export default async function SchemesPage() {
   });
 
   return (
-    <Suspense fallback={<SchemesSkeleton />}>
-      <SchemesClient initialSchemes={schemes} />
-    </Suspense>
+    <div className="min-h-screen bg-night text-[color:var(--text-1)]">
+      <Suspense fallback={<SchemesSkeleton />}>
+        <SchemesClient initialSchemes={schemes} />
+      </Suspense>
+    </div>
   );
 }

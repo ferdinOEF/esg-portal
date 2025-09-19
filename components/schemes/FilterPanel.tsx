@@ -1,4 +1,3 @@
-// components/schemes/FilterPanel.tsx
 "use client";
 
 export default function FilterPanel(props: {
@@ -18,16 +17,16 @@ export default function FilterPanel(props: {
   } = props;
 
   return (
-    <div className="border rounded-xl p-4 bg-white space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Refine</h3>
+    <div className="bg-[color:var(--glass)] border border-[color:var(--border-1)] rounded-2xl p-4 text-[color:var(--text-1)]">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold">Refine</h3>
         <button onClick={onClear} className="text-xs underline">Clear all</button>
       </div>
 
-      <div>
-        <label className="text-xs text-gray-600">Mandatory</label>
+      <div className="mb-4">
+        <label className="text-xs text-[color:var(--text-2)]">Mandatory</label>
         <select
-          className="mt-1 w-full border rounded-lg px-3 py-2"
+          className="mt-1 w-full rounded-lg px-3 py-2 bg-[color:var(--glass)] border border-[color:var(--border-1)] text-[color:var(--text-1)] focus:outline-none focus:ring-2 focus:ring-[color:var(--focus)]"
           value={mandatory}
           onChange={(e) => onMandatory(e.target.value as any)}
         >
@@ -37,8 +36,8 @@ export default function FilterPanel(props: {
         </select>
       </div>
 
-      <div>
-        <div className="text-xs text-gray-600 mb-1">Categories</div>
+      <div className="mb-4">
+        <div className="text-xs text-[color:var(--text-2)] mb-1">Categories</div>
         <div className="flex flex-col gap-1 max-h-64 overflow-auto pr-1">
           {allCategories.map((c) => {
             const checked = activeCats.includes(c);
@@ -48,7 +47,7 @@ export default function FilterPanel(props: {
                   type="checkbox"
                   checked={checked}
                   onChange={() => onToggleCat(c)}
-                  className="h-4 w-4"
+                  className="h-4 w-4 accent-[color:var(--focus)]"
                 />
                 <span className={checked ? "font-medium" : ""}>{c}</span>
               </label>
@@ -58,7 +57,7 @@ export default function FilterPanel(props: {
       </div>
 
       <div>
-        <div className="text-xs text-gray-600 mb-1">Tags</div>
+        <div className="text-xs text-[color:var(--text-2)] mb-1">Tags</div>
         <div className="flex flex-wrap gap-2 max-h-40 overflow-auto pr-1">
           {allTags.map((t) => {
             const active = activeTags.includes(t);
@@ -66,7 +65,11 @@ export default function FilterPanel(props: {
               <button
                 key={t}
                 onClick={() => onToggleTag(t)}
-                className={`text-xs px-2 py-1 rounded-full border ${active ? "bg-gray-900 text-white" : "bg-white hover:bg-gray-50"}`}
+                className={`text-xs px-2 py-1 rounded-full border transition-colors duration-150 ${
+                  active
+                    ? "bg-white/10 border-white/30"
+                    : "bg-[color:var(--chip)] border-[color:var(--chip-border)] hover:bg-white/10"
+                }`}
               >
                 #{t}
               </button>
