@@ -166,3 +166,28 @@ model Session {
 
   user User @relation(fields: [userId], references: [id])
 }
+
+model Scheme {
+  id               String    @id @default(cuid())
+  code             String    @unique          // e.g., "BRSR", "TEAM", "CBAM"
+  title            String
+  category         String                     // e.g., "Regulatory Frameworks", "Trade & Carbon Mechanisms"
+  issuingAuthority String?
+  mandatory        Boolean   @default(false)
+
+  description      String?
+  eligibility      String?
+  process          String?
+  benefits         String?
+  deadlines        String?
+
+  features         String[]  @default([])     // quick bullets
+  tags             String[]  @default([])     // for filters: ["reporting","market access"]
+
+  // references: array of { label: string, url?: string, filename?: string }
+  references       Json?
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
