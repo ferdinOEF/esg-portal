@@ -1,29 +1,25 @@
-/* === Global UI/UX refinements === */
+/* ---- Tailwind core (must be first) ---- */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-/* Smoother font rendering */
-html, body { text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-
-/* Link focus rings on dark bg */
-a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--focus);
+/* === ESG Portal: Night Blue Theme Tokens === */
+:root {
+  --bg-0: #0c1220;           /* night navy */
+  --bg-1: #0f1a2b;           /* slightly lighter */
+  --glass: rgba(255,255,255,0.06);
+  --glass-strong: rgba(255,255,255,0.12);
+  --text-1: #e6ebff;         /* primary text on dark */
+  --text-2: #b7c0e6;         /* secondary text */
+  --border-1: rgba(255,255,255,0.12);
+  --chip: rgba(255,255,255,0.08);
+  --chip-border: rgba(255,255,255,0.18);
+  --success: #32d583;        /* voluntary */
+  --danger:  #ff6b6b;        /* mandatory */
+  --focus:  #7aa2ff;
 }
 
-/* Minimal scrollbars to match night theme */
-* {
-  scrollbar-color: rgba(255,255,255,0.2) transparent;
-  scrollbar-width: thin;
-}
-*::-webkit-scrollbar { height: 10px; width: 10px; }
-*::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb {
-  background-color: rgba(255,255,255,0.22);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-
-/* Page background gradient class (already used) */
+/* Background gradient + subtle stars */
 .bg-night {
   background-color: var(--bg-0);
   background-image:
@@ -42,4 +38,30 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     radial-gradient(1px 1px at 30% 70%, rgba(255,255,255,0.06) 50%, transparent 50%);
   mask-image: radial-gradient(70% 60% at 50% 0%, rgba(0,0,0,1), transparent 70%);
   z-index: 0;
+}
+
+/* ---- Global UI/UX refinements ---- */
+html, body {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus);
+}
+
+/* Night scrollbars */
+* {
+  scrollbar-color: rgba(255,255,255,0.2) transparent;
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar { height: 10px; width: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(255,255,255,0.22);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }

@@ -8,38 +8,34 @@ datasource db {
 }
 
 model User {
-  id             String      @id @default(cuid())
-  name           String?
-  email          String?     @unique
-  emailVerified  DateTime?
-  image          String?
-  hashedPassword String?
-
-  accounts Account[]
-  sessions Session[]
-  memberships Membership[]
-
-  evidencesUploaded  Evidence[]   @relation("EvidenceUploadedBy")
+  id                 String       @id @default(cuid())
+  name               String?
+  email              String?      @unique
+  emailVerified      DateTime?
+  image              String?
+  hashedPassword     String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  accounts           Account[]
   assessmentsUpdated Assessment[] @relation("AssessmentUpdatedBy")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  evidencesUploaded  Evidence[]   @relation("EvidenceUploadedBy")
+  memberships        Membership[]
+  sessions           Session[]
 }
 
 model Company {
-  id        String       @id @default(cuid())
-  name      String
-  industry  String?
-  website   String?
-  abn       String?
-  address   String?
-  phone     String?
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-
-  memberships Membership[]
-  evidences   Evidence[]
+  id          String       @id @default(cuid())
+  name        String
+  industry    String?
+  website     String?
+  abn         String?
+  address     String?
+  phone       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
   assessments Assessment[]
+  evidences   Evidence[]
+  memberships Membership[]
 }
 
 model Membership {
@@ -47,18 +43,10 @@ model Membership {
   role      Role    @default(USER)
   userId    String
   companyId String
-
-  user    User    @relation(fields: [userId], references: [id])
-  company Company @relation(fields: [companyId], references: [id])
+  company   Company @relation(fields: [companyId], references: [id])
+  user      User    @relation(fields: [userId], references: [id])
 
   @@unique([userId, companyId])
-}
-
-enum Role {
-  ADMIN
-  MANAGER
-  USER
-  AUDITOR
 }
 
 model Framework {
@@ -70,73 +58,60 @@ model Framework {
 }
 
 model Requirement {
-  id           String    @id @default(cuid())
-  frameworkId  String
-  code         String
-  title        String
-  description  String?
-  category     String?
-  weight       Int       @default(1)
-
-  framework    Framework @relation(fields: [frameworkId], references: [id])
-  evidences    Evidence[]
-  assessments  Assessment[]
+  id          String       @id @default(cuid())
+  frameworkId String
+  code        String
+  title       String
+  description String?
+  category    String?
+  weight      Int          @default(1)
+  assessments Assessment[]
+  evidences   Evidence[]
+  framework   Framework    @relation(fields: [frameworkId], references: [id])
 
   @@unique([frameworkId, code])
 }
 
 model File {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   filename    String
   mimeType    String
   sizeBytes   Int
   storagePath String
-  createdAt   DateTime @default(now())
-
-  evidence Evidence?
+  createdAt   DateTime  @default(now())
+  evidence    Evidence?
 }
 
 model Evidence {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   companyId     String
   requirementId String
-
-  title        String
-  fileId       String?   @unique
-  url          String?
-  note         String?
-  uploadedById String?
-  uploadedAt   DateTime  @default(now())
-
-  company     Company     @relation(fields: [companyId], references: [id])
-  requirement Requirement  @relation(fields: [requirementId], references: [id])
-  file        File?        @relation(fields: [fileId], references: [id])
-  uploadedBy  User?        @relation(name: "EvidenceUploadedBy", fields: [uploadedById], references: [id])
+  title         String
+  fileId        String?     @unique
+  url           String?
+  note          String?
+  uploadedById  String?
+  uploadedAt    DateTime    @default(now())
+  company       Company     @relation(fields: [companyId], references: [id])
+  file          File?       @relation(fields: [fileId], references: [id])
+  requirement   Requirement @relation(fields: [requirementId], references: [id])
+  uploadedBy    User?       @relation("EvidenceUploadedBy", fields: [uploadedById], references: [id])
 }
 
 model Assessment {
-  id             String   @id @default(cuid())
-  companyId      String
-  requirementId  String
-
-  status     AssessmentStatus @default(PENDING)
-  score      Int?
-  notes      String?
-  updatedById String?
-  updatedAt  DateTime @default(now())
-
-  company     Company     @relation(fields: [companyId], references: [id])
-  requirement Requirement  @relation(fields: [requirementId], references: [id])
-  updatedBy   User?        @relation(name: "AssessmentUpdatedBy", fields: [updatedById], references: [id])
+  id            String           @id @default(cuid())
+  companyId     String
+  requirementId String
+  status        AssessmentStatus @default(PENDING)
+  score         Int?
+  notes         String?
+  updatedById   String?
+  updatedAt     DateTime         @default(now())
+  company       Company          @relation(fields: [companyId], references: [id])
+  requirement   Requirement      @relation(fields: [requirementId], references: [id])
+  updatedBy     User?            @relation("AssessmentUpdatedBy", fields: [updatedById], references: [id])
 
   @@unique([companyId, requirementId])
-}
-
-enum AssessmentStatus {
-  PENDING
-  COMPLIANT
-  PARTIAL
-  NON_COMPLIANT
 }
 
 model Account {
@@ -152,8 +127,7 @@ model Account {
   scope             String?
   id_token          String?
   session_state     String?
-
-  user User @relation(fields: [userId], references: [id])
+  user              User    @relation(fields: [userId], references: [id])
 
   @@unique([provider, providerAccountId])
 }
@@ -163,34 +137,41 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
-
-  user User @relation(fields: [userId], references: [id])
+  user         User     @relation(fields: [userId], references: [id])
 }
 
 model Scheme {
-  id               String    @id @default(cuid())
-  code             String    @unique          // e.g., "BRSR", "TEAM", "CBAM"
+  id               String   @id @default(cuid())
+  code             String   @unique
   title            String
-  category         String                     // e.g., "Regulatory Frameworks", "Trade & Carbon Mechanisms"
+  category         String
   issuingAuthority String?
-  mandatory        Boolean   @default(false)
-
+  mandatory        Boolean  @default(false)
   description      String?
   eligibility      String?
   process          String?
   benefits         String?
   deadlines        String?
-
-  features         String[]  @default([])     // quick bullets
-  tags             String[]  @default([])     // for filters: ["reporting","market access"]
-
-  // references: array of { label: string, url?: string, filename?: string }
+  features         String[] @default([])
+  tags             String[] @default([])
   references       Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-
-@@index([category])
-@@index([code])
+  @@index([category])
+  @@index([code])
 }
 
+enum Role {
+  ADMIN
+  MANAGER
+  USER
+  AUDITOR
+}
+
+enum AssessmentStatus {
+  PENDING
+  COMPLIANT
+  PARTIAL
+  NON_COMPLIANT
+}

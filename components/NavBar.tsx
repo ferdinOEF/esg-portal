@@ -9,8 +9,7 @@ type Item = { name: string; href: string; startsWith?: string };
 
 const ITEMS: Item[] = [
   { name: "Companies",  href: "/companies", startsWith: "/companies" },
-  // Repository points to your unified Schemes/Certs/Frameworks catalog
-  { name: "Repository", href: "/schemes",   startsWith: "/schemes" },
+  { name: "Repository", href: "/schemes",   startsWith: "/schemes" }, // unified catalog
   { name: "GodMode",    href: "/godmode",   startsWith: "/godmode" },
 ];
 
@@ -27,13 +26,11 @@ export default function NavBar() {
     <header className="sticky top-0 z-40 w-full border-b border-[color:var(--border-1)] bg-[color:var(--bg-0)]/70 backdrop-blur">
       <div className="max-w-7xl mx-auto px-4">
         <div className="h-14 flex items-center justify-between">
-          {/* Brand */}
           <Link href="/" className="flex items-center gap-2 font-semibold tracking-wide hover:opacity-90">
             <span className="inline-block h-2 w-2 rounded-full bg-white/70" />
             ESG Portal
           </Link>
 
-          {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-1">
             {ITEMS.map((item) => {
               const active = isActive(pathname, item);
@@ -55,7 +52,6 @@ export default function NavBar() {
             })}
           </nav>
 
-          {/* Mobile menu button */}
           <button
             aria-label="Open menu"
             className="md:hidden px-2 py-2 rounded-lg border border-[color:var(--border-1)] bg-[color:var(--glass)]"
@@ -68,7 +64,6 @@ export default function NavBar() {
         </div>
       </div>
 
-      {/* Mobile drawer */}
       {open && (
         <div className="md:hidden border-t border-[color:var(--border-1)] bg-[color:var(--bg-0)]/85 backdrop-blur">
           <nav className="max-w-7xl mx-auto px-4 py-2 flex flex-col">
