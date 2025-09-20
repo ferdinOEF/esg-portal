@@ -1,53 +1,61 @@
 // app/godmode/page.tsx
-import React from "react";
 import { prisma } from "@/src/lib/prisma";
-import ESGRadar from "@/components/godmode/ESGRadar";
 import Mindmap from "@/components/godmode/Mindmap";
+import EsgRadar from "@/components/godmode/EsgRadar";
+import GoaHeatmap from "@/components/godmode/GoaHeatmap";
 
 export const runtime = "nodejs";
-export const revalidate = 60;
 
 export default async function GodModePage() {
-  const [schemes, relations] = await Promise.all([
-    prisma.scheme.findMany({
-      select: {
-        id: true,
-        title: true,
-        category: true,
-        tags: true,
-        mandatory: true,
-      },
-      orderBy: [{ category: "asc" }, { title: "asc" }],
-      take: 600,
-    }),
-    prisma.relation.findMany({
+  // Keep it robust: basic fields only
+  const schemes = await prisma.scheme.findMany({
+    select: { id: true, title: true, category: true, tags: true, mandatory: true },
+    orderBy: { title: "asc" },
+  });
+
+  // If you have Relation model; if not, keep [].
+  let relations: Array<{
+    fromId: string;
+    toId: string;
+    type: "REQUIRES" | "ALIGNS_WITH" | "CONFLICTS_WITH";
+    note: string | null;
+  }> = [];
+  try {
+    relations = await prisma.relation.findMany({
       select: { fromId: true, toId: true, type: true, note: true },
-      take: 2000,
-    }),
-  ]);
+    });
+  } catch {
+    relations = [];
+  }
 
   return (
-    <div className="min-h-screen bg-[var(--bg-0)] bg-[radial-gradient(1200px_600px_at_20%_-10%,#14203b_15%,transparent),radial-gradient(800px_400px_at_80%_-10%,#1d2f5e_10%,transparent)] text-[var(--text-1)]">
-      <div className="max-w-7xl mx-auto px-4 py-10 space-y-10">
-        <header className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold tracking-tight">GodMode</h1>
-          <span className="text-sm text-[var(--text-2)]">
-            ESG Control Center · MSME Focus
-          </span>
-        </header>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="space-y-6">
-            <ESGRadar />
-          </div>
-          <div className="space-y-6 lg:col-span-2">
-            <section className="relative">
-              <h2 className="text-lg font-semibold mb-3">ESG Mindmap</h2>
-              <Mindmap schemes={schemes as any} relations={relations as any} />
-            </section>
-          </div>
+    <main className="max-w-7xl mx-auto px-4 py-8 text-[var(--text-1)]">
+      {/* Header / Subtitle */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-semibold">GodMode</h1>
+        <div className="text-sm text-[var(--text-2)]">
+          ESG Control Center · MSME Focus
         </div>
       </div>
-    </div>
+
+      {/* Top row: ESG Radar + Heatmap */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <section className="rounded-2xl border border-[var(--border-1)] bg-[var(--glass)] backdrop-blur p-4">
+          <h2 className="text-xl font-semibold mb-3">ESG Radar</h2>
+          <EsgRadar />
+        </section>
+
+        <section className="rounded-2xl border border-[var(--border-1)] bg-[var(--glass)] backdrop-blur p-4">
+          <h2 className="text-xl font-semibold mb-3">Compliance Heatmap (Goa)</h2>
+          <GoaHeatmap />
+        </section>
+      </div>
+
+      {/* Mindmap */}
+      <section className="rounded-2xl">
+        <h2 className="text-xl font-semibold mb-3">ESG Mindmap</h2>
+        <Mindmap schemes={schemes} relations={relations} />
+      </section>
+    </main>
   );
 }

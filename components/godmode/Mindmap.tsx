@@ -1,4 +1,3 @@
-// components/godmode/Mindmap.tsx
 "use client";
 
 import React, {
@@ -7,7 +6,6 @@ import React, {
   useMemo,
   useCallback,
   useEffect,
-  useLayoutEffect,
 } from "react";
 import dynamic from "next/dynamic";
 import {
@@ -42,7 +40,15 @@ type Props = {
   relations?: Relation[];
 };
 
-function getCategoryColor(category: string) {
+const REL_STYLE = {
+  REQUIRES: { color: "#ffd166", dash: [] as number[], width: 2.2 },
+  ALIGNS_WITH: { color: "#6ee7b7", dash: [6, 4] as number[], width: 1.6 },
+  CONFLICTS_WITH: { color: "#fb7185", dash: [3, 3] as number[], width: 2.2 },
+};
+
+const PANEL_W = 380;
+
+function catColor(category: string) {
   const map: Record<string, string> = {
     "Regulatory Frameworks (India)": "#ffb020",
     "EPR & Waste (India)": "#7dd87d",
@@ -61,39 +67,36 @@ function getCategoryColor(category: string) {
   return map[category] ?? "#8b9bff";
 }
 
-const RELATION_STYLE = {
-  REQUIRES: { color: "#ffd166", dash: [] as number[], width: 2.2 },
-  ALIGNS_WITH: { color: "#6ee7b7", dash: [6, 4] as number[], width: 1.6 },
-  CONFLICTS_WITH: { color: "#fb7185", dash: [3, 3] as number[], width: 2.2 },
-};
-
-const PANEL_W = 360;
-const PANEL_GAP = 16;
-
 export default function Mindmap({ schemes, relations = [] }: Props) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<any>(null);
 
-  const [dims, setDims] = useState({ w: 1200, h: 600 });
+  const [w, setW] = useState(1200);
+  const [h, setH] = useState(640);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
-  const [clusterByCategory, setClusterByCategory] = useState(true);
-  const [showAllLabels, setShowAllLabels] = useState(false);
+  const [cluster, setCluster] = useState(true);
+  const [showLabels, setShowLabels] = useState(false);
   const [showEdges, setShowEdges] = useState(true);
 
   const [q, setQ] = useState("");
-  const normalizedQ = q.trim().toLowerCase();
+  const qNorm = q.trim().toLowerCase();
 
-  useLayoutEffect(() => {
-    if (!containerRef.current) return;
+  // Track container size
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
     const ro = new ResizeObserver((entries) => {
-      for (const e of entries) setDims((d) => ({ ...d, w: e.contentRect.width }));
+      for (const e of entries) {
+        setW(Math.max(640, e.contentRect.width));
+        setH(Math.max(520, e.contentRect.height));
+      }
     });
-    ro.observe(containerRef.current);
+    ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  const categories = useMemo(
+  const cats = useMemo(
     () => Array.from(new Set(schemes.map((s) => s.category))).sort(),
     [schemes]
   );
@@ -114,11 +117,13 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
       why?: string[];
     }> = [];
 
+    // explicit relations from DB
     for (const r of relations) {
       links.push({ source: r.fromId, target: r.toId, type: r.type });
     }
 
-    const existing = new Set(links.map((l) => `${l.source}->${l.target}`));
+    // lightweight similarity links across categories (shared tags)
+    const exists = new Set(links.map((l) => `${l.source}->${l.target}`));
     for (let i = 0; i < schemes.length; i++) {
       for (let j = i + 1; j < schemes.length; j++) {
         const a = schemes[i];
@@ -128,9 +133,9 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
         if (!ta.length || !tb.length) continue;
         const overlap = ta.filter((t) => tb.includes(t));
         if (overlap.length && a.category !== b.category) {
-          const key1 = `${a.id}->${b.id}`;
-          const key2 = `${b.id}->${a.id}`;
-          if (!existing.has(key1) && !existing.has(key2)) {
+          const k1 = `${a.id}->${b.id}`;
+          const k2 = `${b.id}->${a.id}`;
+          if (!exists.has(k1) && !exists.has(k2)) {
             links.push({ source: a.id, target: b.id, why: overlap.slice(0, 3) });
           }
         }
@@ -147,119 +152,192 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
     return { nodes, links, degree };
   }, [schemes, relations]);
 
-  const searchResults = useMemo(() => {
-    if (!normalizedQ) return [];
-    return schemes
-      .map((s) => ({
-        id: s.id,
-        title: s.title,
-        category: s.category,
-        score: s.title.toLowerCase().includes(normalizedQ) ? 0 : 1,
-      }))
-      .filter((x) => x.title.toLowerCase().includes(normalizedQ))
-      .sort((a, b) => (a.score === b.score ? a.title.localeCompare(b.title) : a.score - b.score))
-      .slice(0, 12);
-  }, [normalizedQ, schemes]);
-
-  const [highlightNodes, setHighlightNodes] = useState<Set<string>>(new Set());
-  const [highlightLinks, setHighlightLinks] = useState<Set<any>>(new Set());
-
-  const computeNeighbors = useCallback(
-    (id: string) => {
-      const n = new Set<string>();
-      const el = new Set<any>();
-      (graph.links as any[]).forEach((l) => {
-        const src = typeof l.source === "object" ? l.source.id : l.source;
-        const tgt = typeof l.target === "object" ? l.target.id : l.target;
-        if (src === id || tgt === id) {
-          n.add(src);
-          n.add(tgt);
-          el.add(l);
-        }
-      });
-      n.add(id);
-      return { n, el };
-    },
-    [graph.links]
-  );
-
-  const focusNodeById = useCallback(
-    (id: string) => {
-      const node = (fgRef.current?.graphData()?.nodes as any[])?.find((n) => n.id === id);
-      if (!node) return;
-      setSelectedId(id);
-      const { n, el } = computeNeighbors(id);
-      setHighlightNodes(n);
-      setHighlightLinks(el);
-      const t = 600;
-      const zoom = 2;
-      if (typeof node.x === "number" && typeof node.y === "number") {
-        fgRef.current?.centerAt(node.x, node.y, t);
-        fgRef.current?.zoom(zoom, t);
-      }
-    },
-    [computeNeighbors]
-  );
-
-  const onNodeClick = useCallback((node: any) => focusNodeById(node.id), [focusNodeById]);
-  const onNodeHover = useCallback((node: any | null) => setHoverId(node?.id ?? null), []);
-  const onBackgroundClick = useCallback(() => {
-    setSelectedId(null);
-    setHoverId(null);
-    setHighlightNodes(new Set());
-    setHighlightLinks(new Set());
-    fgRef.current?.zoomToFit(160, 600);
-  }, []);
-
+  // Fit to view once data mounts or size changes
   useEffect(() => {
-    const id = setTimeout(() => fgRef.current?.zoomToFit(160, 700), 350);
-    return () => clearTimeout(id);
-  }, [selectedId]);
+    const t = setTimeout(() => fgRef.current?.zoomToFit(120, 800), 250);
+    return () => clearTimeout(t);
+  }, [w, h, schemes.length, relations.length]);
 
-  // Forces (use named imports with types)
+  // D3 forces
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
 
     const linkForce = fg.d3Force("link");
-    linkForce?.distance((l: any) => (l.type ? 90 : 120));
+    linkForce?.distance((l: any) => (l.type ? 110 : 150));
     linkForce?.strength(0.9);
 
-    fg.d3Force("charge", forceManyBody().strength(-180));
+    fg.d3Force("charge", forceManyBody().strength(-220));
     fg.d3Force("collide", forceCollide(12));
 
-    if (clusterByCategory) {
-      const cols = Math.max(1, categories.length);
+    if (cluster) {
+      const cols = Math.max(1, cats.length);
+      const canvasW = selectedId ? Math.max(420, w - (PANEL_W + 16)) : w;
+      const gutter = 24;
+      const usable = canvasW - gutter * 2;
+      const step = cols > 1 ? usable / (cols - 1) : 0;
+
       fg.d3Force(
         "forceX",
-        forceX((node: any) => {
-          const idx = categories.indexOf(node.category) ?? 0;
-          const canvasW =
-            selectedId ? Math.max(360, dims.w - (PANEL_W + PANEL_GAP)) : dims.w;
-          const gutter = 24;
-          const usable = canvasW - gutter * 2;
-          const step = usable / Math.max(1, cols - 1);
+        forceX((n: any) => {
+          const idx = Math.max(0, cats.indexOf(n.category));
           return gutter + idx * step;
         }).strength(0.08)
       );
-      fg.d3Force("forceY", forceY(dims.h / 2).strength(0.04));
+      fg.d3Force("forceY", forceY(h / 2).strength(0.05));
     } else {
       fg.d3Force("forceX", null);
       fg.d3Force("forceY", null);
     }
 
+    fg.d3Alpha(0.9);
     fg.d3AlphaDecay(0.02);
-  }, [clusterByCategory, categories, dims.w, dims.h, selectedId]);
+    fg.refresh();
+  }, [cluster, cats, w, h, selectedId]);
 
-  const graphWidth = selectedId
-    ? Math.max(360, dims.w - (PANEL_W + PANEL_GAP))
-    : dims.w;
+  // Search list
+  const results = useMemo(() => {
+    if (!qNorm) return [];
+    return schemes
+      .map((s) => ({
+        id: s.id,
+        title: s.title,
+        category: s.category,
+        score: s.title.toLowerCase().includes(qNorm) ? 0 : 1,
+      }))
+      .filter((x) => x.title.toLowerCase().includes(qNorm))
+      .sort((a, b) =>
+        a.score === b.score
+          ? a.title.localeCompare(b.title)
+          : a.score - b.score
+      )
+      .slice(0, 12);
+  }, [qNorm, schemes]);
 
-  const selectedScheme = selectedId
+  // Highlight sets
+  const [hNodes, setHNodes] = useState<Set<string>>(new Set());
+  const [hLinks, setHLinks] = useState<Set<any>>(new Set());
+
+  const computeNeighbors = useCallback(
+    (id: string) => {
+      const ns = new Set<string>();
+      const ls = new Set<any>();
+      (graph.links as any[]).forEach((l) => {
+        const s = typeof l.source === "object" ? l.source.id : l.source;
+        const t = typeof l.target === "object" ? l.target.id : l.target;
+        if (s === id || t === id) {
+          ns.add(s);
+          ns.add(t);
+          ls.add(l);
+        }
+      });
+      ns.add(id);
+      return { ns, ls };
+    },
+    [graph.links]
+  );
+
+  const focus = useCallback(
+    (id: string) => {
+      const node = (fgRef.current?.graphData()?.nodes as any[])?.find(
+        (n) => n.id === id
+      );
+      if (!node) return;
+      setSelectedId(id);
+      const { ns, ls } = computeNeighbors(id);
+      setHNodes(ns);
+      setHLinks(ls);
+      if (typeof node.x === "number" && typeof node.y === "number") {
+        fgRef.current?.centerAt(node.x, node.y, 600);
+        fgRef.current?.zoom(2.2, 600);
+      }
+    },
+    [computeNeighbors]
+  );
+
+  const onNodeClick = useCallback((n: any) => focus(n.id), [focus]);
+  const onNodeHover = useCallback((n: any | null) => setHoverId(n?.id ?? null), []);
+  const onBgClick = useCallback(() => {
+    setSelectedId(null);
+    setHoverId(null);
+    setHNodes(new Set());
+    setHLinks(new Set());
+    fgRef.current?.zoomToFit(140, 600);
+  }, []);
+
+  // Node drawing
+  const nodeDraw = useCallback(
+    (node: any, ctx: CanvasRenderingContext2D, scale: number) => {
+      const id = node.id as string;
+      const hot =
+        hNodes.has(id) ||
+        id === selectedId ||
+        (hoverId && (id === hoverId || hNodes.has(hoverId)));
+      const color = catColor(node.category as string);
+      const degree = (graph as any).degree?.[id] ?? 0;
+      const r = Math.min(12, 6 + Math.sqrt(degree));
+
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, hot ? r + 2 : r, 0, 2 * Math.PI);
+      ctx.fillStyle = hot ? color : "rgba(255,255,255,0.22)";
+      ctx.fill();
+      ctx.lineWidth = hot ? 2 : 1;
+      ctx.strokeStyle = color;
+      ctx.stroke();
+
+      const show =
+        showLabels || hot || scale > 1.35 || (degree >= 3 && scale > 1.1);
+      if (show) {
+        const label = node.name as string;
+        const max = scale > 2.4 ? 56 : scale > 1.8 ? 44 : scale > 1.3 ? 32 : 26;
+        const text = label.length > max ? label.slice(0, max - 1) + "…" : label;
+        const fs = Math.max(10, 12 / scale);
+        ctx.font = `${fs}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto`;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "rgba(230,235,255,0.95)";
+        ctx.fillText(text, node.x + r + 6, node.y);
+      }
+    },
+    [hNodes, selectedId, hoverId, showLabels, graph]
+  );
+
+  // Link drawing (quadratic, colored by relation type)
+  const linkDraw = useCallback(
+    (l: any, ctx: CanvasRenderingContext2D) => {
+      if (!showEdges) return;
+      const s = l.source;
+      const t = l.target;
+      if (typeof s.x !== "number" || typeof s.y !== "number") return;
+      if (typeof t.x !== "number" || typeof t.y !== "number") return;
+
+      const style =
+        l.type && REL_STYLE[l.type as keyof typeof REL_STYLE]
+          ? REL_STYLE[l.type as keyof typeof REL_STYLE]
+          : { color: "rgba(255,255,255,0.20)", dash: [] as number[], width: 1 };
+
+      const cx = (s.x + t.x) / 2;
+      const cy = (s.y + t.y) / 2;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash(style.dash);
+      ctx.moveTo(s.x, s.y);
+      ctx.quadraticCurveTo(cx, cy, t.x, t.y);
+      ctx.lineWidth = hLinks.has(l) ? style.width + 1 : style.width;
+      ctx.strokeStyle = style.color;
+      ctx.stroke();
+      ctx.restore();
+    },
+    [hLinks, showEdges]
+  );
+
+  // Side panel data
+  const selected = selectedId
     ? schemes.find((s) => s.id === selectedId) || null
     : null;
 
-  const neighborsList = useMemo(() => {
+  const neighbors = useMemo(() => {
     if (!selectedId) return [];
     const items: Array<{
       id: string;
@@ -270,17 +348,17 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
       type?: Relation["type"];
     }> = [];
     (graph.links as any[]).forEach((l) => {
-      const src = typeof l.source === "object" ? l.source.id : l.source;
-      const tgt = typeof l.target === "object" ? l.target.id : l.target;
-      if (src === selectedId || tgt === selectedId) {
-        const other = src === selectedId ? tgt : src;
-        const s = schemes.find((x) => x.id === other);
-        if (s) {
+      const s = typeof l.source === "object" ? l.source.id : l.source;
+      const t = typeof l.target === "object" ? l.target.id : l.target;
+      if (s === selectedId || t === selectedId) {
+        const other = s === selectedId ? t : s;
+        const sch = schemes.find((x) => x.id === other);
+        if (sch) {
           items.push({
-            id: s.id,
-            title: s.title,
-            category: s.category,
-            tags: (s.tags || []).slice(0, 6),
+            id: sch.id,
+            title: sch.title,
+            category: sch.category,
+            tags: (sch.tags || []).slice(0, 6),
             why: (l.why || []).slice(0, 3),
             type: l.type,
           });
@@ -292,86 +370,21 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
         ? a.title.localeCompare(b.title)
         : a.category.localeCompare(b.category)
     );
-    return items.slice(0, 16);
+    return items.slice(0, 18);
   }, [selectedId, graph.links, schemes]);
 
-  const drawNode = useCallback(
-    (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      const id = node.id as string;
-      const hot =
-        highlightNodes.has(id) ||
-        id === selectedId ||
-        (hoverId && (id === hoverId || highlightNodes.has(hoverId)));
-      const col = getCategoryColor(node.category as string);
-
-      const degree = (graph as any).degree?.[id] ?? 0;
-      const r = Math.min(12, 6 + Math.sqrt(degree));
-
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, hot ? r + 2 : r, 0, 2 * Math.PI, false);
-      ctx.fillStyle = hot ? col : "rgba(255,255,255,0.22)";
-      ctx.fill();
-      ctx.lineWidth = hot ? 2 : 1;
-      ctx.strokeStyle = col;
-      ctx.stroke();
-
-      const mustShow = showAllLabels || hot || globalScale > 1.3;
-      if (mustShow) {
-        const label = node.name as string;
-        const maxChars = globalScale > 2.2 ? 48 : globalScale > 1.6 ? 36 : 28;
-        const text = label.length > maxChars ? label.slice(0, maxChars - 1) + "…" : label;
-        const fontSize = Math.max(10, 12 / globalScale);
-        ctx.font = `${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto`;
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = "rgba(230,235,255,0.95)";
-        ctx.fillText(text, node.x + r + 6, node.y);
-      }
-    },
-    [highlightNodes, selectedId, hoverId, showAllLabels, graph]
-  );
-
-  const linkCanvasObject = useCallback(
-    (link: any, ctx: CanvasRenderingContext2D) => {
-      if (!showEdges) return;
-
-      const src = link.source;
-      const tgt = link.target;
-      if (typeof src.x !== "number" || typeof src.y !== "number") return;
-      if (typeof tgt.x !== "number" || typeof tgt.y !== "number") return;
-
-      const st =
-        link.type && RELATION_STYLE[link.type as keyof typeof RELATION_STYLE]
-          ? RELATION_STYLE[link.type as keyof typeof RELATION_STYLE]
-          : { color: "rgba(255,255,255,0.20)", dash: [] as number[], width: 1 };
-
-      const cx = (src.x + tgt.x) / 2;
-      const laneGap = 0.0; // keep subtle; lanes handled by forceX/forceY
-      const cy = (src.y + tgt.y) / 2 + laneGap;
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.setLineDash(st.dash);
-      ctx.moveTo(src.x, src.y);
-      ctx.quadraticCurveTo(cx, cy, tgt.x, tgt.y);
-      ctx.lineWidth = highlightLinks.has(link) ? st.width + 1 : st.width;
-      ctx.strokeStyle = st.color;
-      ctx.stroke();
-      ctx.restore();
-    },
-    [highlightLinks, showEdges]
-  );
+  const graphW = selected ? Math.max(420, w - (PANEL_W + 16)) : w;
 
   return (
     <div
-      ref={containerRef}
-      className="relative w-full rounded-2xl border border-[var(--border-1)] bg-[var(--glass)] backdrop-blur"
+      ref={wrapRef}
+      className="relative w-full rounded-2xl border border-[var(--border-1)] bg-[var(--glass)] backdrop-blur p-3"
       style={{ minHeight: 560 }}
     >
       {/* Controls */}
-      <div className="absolute z-10 left-3 top-3 flex flex-wrap gap-3">
+      <div className="absolute z-20 left-3 top-3 flex flex-wrap gap-3">
         <button
-          onClick={() => fgRef.current?.zoomToFit(160, 600)}
+          onClick={() => fgRef.current?.zoomToFit(140, 600)}
           className="px-3 py-1 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] text-xs hover:shadow-glow"
         >
           Fit
@@ -380,9 +393,10 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
           onClick={() => {
             setSelectedId(null);
             setHoverId(null);
-            setHighlightNodes(new Set());
-            setHighlightLinks(new Set());
+            setHNodes(new Set());
+            setHLinks(new Set());
             fgRef.current?.zoom(1, 400);
+            fgRef.current?.centerAt(0, 0, 400);
           }}
           className="px-3 py-1 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] text-xs"
         >
@@ -392,8 +406,8 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
         <label className="flex items-center gap-2 text-xs px-2 py-1 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] cursor-pointer">
           <input
             type="checkbox"
-            checked={clusterByCategory}
-            onChange={(e) => setClusterByCategory(e.target.checked)}
+            checked={cluster}
+            onChange={(e) => setCluster(e.target.checked)}
           />
           Cluster by Category
         </label>
@@ -401,8 +415,8 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
         <label className="flex items-center gap-2 text-xs px-2 py-1 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] cursor-pointer">
           <input
             type="checkbox"
-            checked={showAllLabels}
-            onChange={(e) => setShowAllLabels(e.target.checked)}
+            checked={showLabels}
+            onChange={(e) => setShowLabels(e.target.checked)}
           />
           Show All Labels
         </label>
@@ -418,28 +432,28 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
       </div>
 
       {/* Search */}
-      <div className="absolute z-10 right-3 top-3 w-72">
+      <div className="absolute z-20 right-3 top-3 w-80">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search schemes…"
           className="w-full px-3 py-2 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] text-sm outline-none focus:ring-2 focus:ring-[var(--focus)]"
         />
-        {normalizedQ && searchResults.length > 0 && (
+        {qNorm && results.length > 0 && (
           <div className="mt-2 max-h-64 overflow-auto rounded-lg border border-[var(--border-1)] bg-[var(--glass)]">
-            {searchResults.map((r) => (
+            {results.map((r) => (
               <button
                 key={r.id}
                 onClick={() => {
                   setQ("");
-                  focusNodeById(r.id);
+                  focus(r.id);
                 }}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-white/10"
               >
                 <div className="flex items-center gap-2">
                   <span
                     className="inline-block w-2 h-2 rounded-full"
-                    style={{ backgroundColor: getCategoryColor(r.category) }}
+                    style={{ backgroundColor: catColor(r.category) }}
                   />
                   <span className="text-[var(--text-1)]">{r.title}</span>
                 </div>
@@ -453,68 +467,65 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
       {/* Graph */}
       <div
         className="transition-[width] duration-300 ease-out"
-        style={{
-          width: selectedId ? Math.max(360, dims.w - (PANEL_W + PANEL_GAP)) : dims.w,
-          height: dims.h,
-        }}
+        style={{ width: graphW, height: h }}
       >
         <ForceGraph2D
           ref={fgRef}
-          width={selectedId ? Math.max(360, dims.w - (PANEL_W + PANEL_GAP)) : dims.w}
-          height={dims.h}
+          width={graphW}
+          height={h}
           graphData={graph}
           backgroundColor="transparent"
           cooldownTicks={90}
           enableZoomInteraction
           enablePanInteraction
-          onBackgroundClick={onBackgroundClick}
+          onBackgroundClick={onBgClick}
           onNodeClick={onNodeClick}
           onNodeHover={onNodeHover}
           nodeRelSize={6}
-          nodeCanvasObject={drawNode}
+          nodeCanvasObject={nodeDraw}
           linkCanvasObjectMode={() => "after"}
-          linkCanvasObject={linkCanvasObject}
+          linkCanvasObject={linkDraw}
         />
       </div>
 
-      {/* Panel */}
-      {selectedScheme && (
+      {/* Right panel */}
+      {selected && (
         <aside
-          className="absolute top-0 right-0 h-full border-l border-[var(--border-1)] bg-[var(--glass)] backdrop-blur p-4 overflow-y-auto"
+          className="absolute z-30 top-0 right-0 h-full border-l border-[var(--border-1)] bg-[var(--glass)] backdrop-blur p-4 overflow-y-auto"
           style={{ width: PANEL_W }}
           role="region"
           aria-live="polite"
         >
-          <div className="text-sm uppercase tracking-wide text-[color:var(--text-2)]">
-            {selectedScheme.category}
+          <div className="text-xs uppercase tracking-wide text-[var(--text-2)]">
+            {selected.category}
           </div>
           <h3
-            className="text-xl font-semibold text-[color:var(--text-1)] mt-0.5"
+            className="text-xl font-semibold text-[var(--text-1)] mt-1"
             style={{ textShadow: "0 0 12px rgba(122,162,255,0.25)" }}
           >
-            {selectedScheme.title}
+            {selected.title}
           </h3>
           <div className="mt-1 text-xs">
             <span
               className={`px-2 py-0.5 rounded-full ${
-                selectedScheme.mandatory
+                selected.mandatory
                   ? "bg-[var(--danger)]/20 text-[var(--danger)]"
                   : "bg-[var(--success)]/20 text-[var(--success)]"
               }`}
             >
-              {selectedScheme.mandatory ? "Mandatory" : "Voluntary"}
+              {selected.mandatory ? "Mandatory" : "Voluntary"}
             </span>
           </div>
 
           <div className="mt-4">
-            <div className="text-sm font-semibold mb-2">Linked Schemes</div>
-            {neighborsList.length === 0 ? (
+            <div className="text-sm font-semibold mb-2">Linked Items</div>
+            {neighbors.length === 0 ? (
               <div className="text-xs text-[var(--text-2)]">
-                No links found (explicit relations or shared tags).
+                No links (explicit or shared tags).
               </div>
             ) : (
               <ul className="space-y-2">
-                {neighborsList.map((n) => (
+                {neighbors.map((n) => (
                   <li
                     key={n.id}
                     className="rounded-lg p-2 border"
@@ -523,32 +534,43 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
                       borderColor: "var(--chip-border)",
                     }}
                   >
-                    <div className="text-xs text-[var(--text-2)]">
-                      <span
-                        className="inline-block w-2 h-2 rounded-full mr-2 align-middle"
-                        style={{ backgroundColor: getCategoryColor(n.category) }}
-                      />
-                      <span className="font-medium text-[var(--text-1)]">
-                        {n.title.length > 52 ? n.title.slice(0, 51) + "…" : n.title}
-                      </span>
-                    </div>
-                    <div className="mt-1 text-[11px] text-[var(--text-2)]">
-                      {n.type ? (
-                        <>
-                          relation:{" "}
-                          <span className="opacity-90">
-                            {n.type.replace("_", " ").toLowerCase()}
+                    <button
+                      onClick={() => focus(n.id)}
+                      className="text-left w-full"
+                    >
+                      <div className="text-xs text-[var(--text-2)]">
+                        <span
+                          className="inline-block w-2 h-2 rounded-full mr-2 align-middle"
+                          style={{ backgroundColor: catColor(n.category) }}
+                        />
+                        <span className="font-medium text-[var(--text-1)]">
+                          {n.title.length > 60
+                            ? n.title.slice(0, 59) + "…"
+                            : n.title}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-[11px] text-[var(--text-2)]">
+                        {n.type ? (
+                          <>
+                            relation:{" "}
+                            <span className="opacity-90">
+                              {n.type.replace("_", " ").toLowerCase()}
+                            </span>
+                          </>
+                        ) : n.why.length ? (
+                          <>
+                            shares tags:{" "}
+                            <span className="opacity-90">
+                              {n.why.join(", ")}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="opacity-75">
+                            related by similarity
                           </span>
-                        </>
-                      ) : n.why.length ? (
-                        <>
-                          shares tags:{" "}
-                          <span className="opacity-90">{n.why.join(", ")}</span>
-                        </>
-                      ) : (
-                        <span className="opacity-75">related by similarity</span>
-                      )}
-                    </div>
+                        )}
+                      </div>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -556,14 +578,14 @@ export default function Mindmap({ schemes, relations = [] }: Props) {
           </div>
 
           <a
-            href={`/schemes?q=${encodeURIComponent(selectedScheme.title)}`}
+            href={`/schemes?q=${encodeURIComponent(selected.title)}`}
             className="inline-block mt-4 px-3 py-1 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] text-sm hover:shadow-glow"
           >
             View in Repository
           </a>
 
           <button
-            onClick={() => setSelectedId(null)}
+            onClick={() => onBgClick()}
             className="mt-3 block px-3 py-1 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] text-sm"
           >
             Close
