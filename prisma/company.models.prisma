@@ -1,0 +1,49 @@
+/// --- Companies MVP Models (safe standalone file) ---
+/// Copy/paste this file **as is** to prisma/company.models.prisma
+/// and then append its contents into your main prisma/schema.prisma
+/// (or manually merge if you prefer). After merging, run:
+///   npx prisma format
+///   npx prisma migrate dev -n "companies_mvp"
+
+model Company {
+  id            String           @id @default(cuid())
+  name          String
+  industry      String?
+  employees     Int?
+  revenueBand   String?
+  export        Boolean          @default(false)
+  exportRegions String[]         @default([])
+  tags          String[]         @default([])
+
+  schemes      CompanyScheme[]   // join table links to Scheme
+  memberships  Membership[]?     // only if you already have Membership → Company relation
+  evidences    Evidence[]?       // only if Evidence has companyId
+  assessments  Assessment[]?     // only if Assessment has companyId
+
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+}
+
+model CompanyScheme {
+  id        String   @id @default(cuid())
+
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId String
+
+  scheme    Scheme   @relation(fields: [schemeId], references: [id])
+  schemeId  String
+
+  status    String   @default("suggested") // suggested | in-progress | compliant | not-applicable
+  notes     String?
+  priority  Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Add this back-relation into your existing Scheme model:
+/// model Scheme {
+///   id             String           @id @default(cuid())
+///   ... (your fields)
+///   companySchemes CompanyScheme[]  // <— ADD THIS LINE
+/// }
