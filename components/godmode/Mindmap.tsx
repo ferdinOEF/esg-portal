@@ -12,7 +12,6 @@ import React, {
 import dynamic from "next/dynamic";
 import * as d3 from "d3-force";
 
-// Use the 2D build
 const ForceGraph2D = dynamic(
   () => import("react-force-graph-2d").then((m) => m.default),
   { ssr: false }
@@ -26,10 +25,19 @@ type Scheme = {
   mandatory: boolean;
 };
 
-type Props = {
-  schemes: Scheme[];
+type Relation = {
+  fromId: string;
+  toId: string;
+  type: "REQUIRES" | "ALIGNS_WITH" | "CONFLICTS_WITH";
+  note?: string | null;
 };
 
+type Props = {
+  schemes: Scheme[];
+  relations?: Relation[];
+};
+
+// palette
 function getCategoryColor(category: string) {
   const map: Record<string, string> = {
     "Regulatory Frameworks (India)": "#ffb020",
@@ -49,23 +57,31 @@ function getCategoryColor(category: string) {
   return map[category] ?? "#8b9bff";
 }
 
+// relation styles
+const RELATION_STYLE = {
+  REQUIRES: { color: "#ffd166", dash: [], width: 2.2 },
+  ALIGNS_WITH: { color: "#6ee7b7", dash: [6, 4], width: 1.6 },
+  CONFLICTS_WITH: { color: "#fb7185", dash: [3, 3], width: 2.2 },
+};
+
 const PANEL_W = 360;
 const PANEL_GAP = 16;
 
-export default function Mindmap({ schemes }: Props) {
+export default function Mindmap({ schemes, relations = [] }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const fgRef = useRef<any>(null);
 
   const [dims, setDims] = useState({ w: 1200, h: 600 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
-
-  // UX toggles
   const [clusterByCategory, setClusterByCategory] = useState(true);
   const [showAllLabels, setShowAllLabels] = useState(false);
   const [showEdges, setShowEdges] = useState(true);
 
-  // Observe container size (responsive)
+  // Search
+  const [q, setQ] = useState("");
+  const normalizedQ = q.trim().toLowerCase();
+
   useLayoutEffect(() => {
     if (!containerRef.current) return;
     const ro = new ResizeObserver((entries) => {
@@ -75,7 +91,6 @@ export default function Mindmap({ schemes }: Props) {
     return () => ro.disconnect();
   }, []);
 
-  // Unique categories for lane layout
   const categories = useMemo(
     () => Array.from(new Set(schemes.map((s) => s.category))).sort(),
     [schemes]
@@ -86,7 +101,7 @@ export default function Mindmap({ schemes }: Props) {
     return m;
   }, [categories]);
 
-  // Build graph with tag-overlap edges
+  // Build graph: explicit relations + (fallback) tag-overlap edges
   const graph = useMemo(() => {
     const nodes = schemes.map((s) => ({
       id: s.id,
@@ -95,8 +110,25 @@ export default function Mindmap({ schemes }: Props) {
       mandatory: s.mandatory,
       tags: (s.tags || []).map((t) => t.toLowerCase()),
     }));
-    const links: Array<{ source: string; target: string; why?: string[]; w?: number }> = [];
 
+    const links: Array<{
+      source: string;
+      target: string;
+      type?: Relation["type"];
+      why?: string[];
+    }> = [];
+
+    // 1) explicit relations first
+    for (const r of relations) {
+      links.push({
+        source: r.fromId,
+        target: r.toId,
+        type: r.type,
+      });
+    }
+
+    // 2) tag similarity fallback (only if no explicit link already exists)
+    const existing = new Set(links.map((l) => `${l.source}->${l.target}`));
     for (let i = 0; i < schemes.length; i++) {
       for (let j = i + 1; j < schemes.length; j++) {
         const a = schemes[i];
@@ -106,12 +138,16 @@ export default function Mindmap({ schemes }: Props) {
         if (!ta.length || !tb.length) continue;
         const overlap = ta.filter((t) => tb.includes(t));
         if (overlap.length && a.category !== b.category) {
-          links.push({ source: a.id, target: b.id, why: overlap.slice(0, 3), w: Math.min(3, overlap.length) });
+          const key1 = `${a.id}->${b.id}`;
+          const key2 = `${b.id}->${a.id}`;
+          if (!existing.has(key1) && !existing.has(key2)) {
+            links.push({ source: a.id, target: b.id, why: overlap.slice(0, 3) });
+          }
         }
       }
     }
 
-    // degree centrality (for size)
+    // degree for sizing
     const degree: Record<string, number> = {};
     nodes.forEach((n) => (degree[n.id] = 0));
     links.forEach((l) => {
@@ -120,9 +156,27 @@ export default function Mindmap({ schemes }: Props) {
     });
 
     return { nodes, links, degree };
-  }, [schemes]);
+  }, [schemes, relations]);
 
-  // Neighbor sets for focus mode
+  // Search candidates (top 12)
+  const searchResults = useMemo(() => {
+    if (!normalizedQ) return [];
+    const res = schemes
+      .map((s) => ({
+        id: s.id,
+        title: s.title,
+        category: s.category,
+        score: s.title.toLowerCase().includes(normalizedQ)
+          ? 0
+          : 1, // simple contains → top
+      }))
+      .filter((x) => x.title.toLowerCase().includes(normalizedQ))
+      .sort((a, b) => (a.score === b.score ? a.title.localeCompare(b.title) : a.score - b.score))
+      .slice(0, 12);
+    return res;
+  }, [normalizedQ, schemes]);
+
+  // highlight/neighbor sets
   const [highlightNodes, setHighlightNodes] = useState<Set<string>>(new Set());
   const [highlightLinks, setHighlightLinks] = useState<Set<any>>(new Set());
 
@@ -145,17 +199,16 @@ export default function Mindmap({ schemes }: Props) {
     [graph.links]
   );
 
-  // Clicking a node focuses neighborhood
-  const onNodeClick = useCallback(
-    (node: any) => {
-      setSelectedId(node.id);
-      const { n, el } = computeNeighbors(node.id);
+  const focusNodeById = useCallback(
+    (id: string) => {
+      const node = (fgRef.current?.graphData()?.nodes as any[])?.find((n) => n.id === id);
+      if (!node) return;
+      setSelectedId(id);
+      const { n, el } = computeNeighbors(id);
       setHighlightNodes(n);
       setHighlightLinks(el);
-
-      // Smooth zoom & center
       const t = 600;
-      const zoom = 2.0;
+      const zoom = 2;
       if (typeof node.x === "number" && typeof node.y === "number") {
         fgRef.current?.centerAt(node.x, node.y, t);
         fgRef.current?.zoom(zoom, t);
@@ -164,49 +217,47 @@ export default function Mindmap({ schemes }: Props) {
     [computeNeighbors]
   );
 
-  // Hover—subtle highlight
-  const onNodeHover = useCallback(
-    (node: any | null) => setHoverId(node?.id ?? null),
-    []
+  const onNodeClick = useCallback(
+    (node: any) => focusNodeById(node.id),
+    [focusNodeById]
   );
+  const onNodeHover = useCallback((node: any | null) => setHoverId(node?.id ?? null), []);
 
   const onBackgroundClick = useCallback(() => {
     setSelectedId(null);
+    setHoverId(null);
     setHighlightNodes(new Set());
     setHighlightLinks(new Set());
     fgRef.current?.zoomToFit(160, 600);
   }, []);
 
-  // Refit graph when panel state changes or after mount
   useEffect(() => {
     const id = setTimeout(() => fgRef.current?.zoomToFit(160, 700), 350);
     return () => clearTimeout(id);
   }, [selectedId]);
 
-  // Apply forces (clustering + collision + link distance)
+  // forces
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
 
-    // Link distance based on tag overlap weight (w: 1–3)
+    // link distance: explicit relations slightly shorter
     const linkForce = fg.d3Force("link");
-    linkForce?.distance((l: any) => 80 + 40 * (3 - (l.w || 1)));
+    linkForce?.distance((l: any) => (l.type ? 90 : 120));
     linkForce?.strength(0.9);
 
-    // Repulsion + collision
     fg.d3Force("charge", d3.forceManyBody().strength(-180));
     fg.d3Force("collide", (d3 as any).forceCollide?.(12));
 
-    // Category lanes (forceX) to prevent a big clump
     if (clusterByCategory) {
       const cols = Math.max(1, categories.length);
       fg.d3Force(
         "forceX",
         d3
           .forceX((node: any) => {
-            const idx = catIndex[node.category] ?? 0;
+            const idx = categories.indexOf(node.category) ?? 0;
             const canvasW =
-              selectedId ? Math.max(320, dims.w - (PANEL_W + PANEL_GAP)) : dims.w;
+              selectedId ? Math.max(360, dims.w - (PANEL_W + PANEL_GAP)) : dims.w;
             const gutter = 24;
             const usable = canvasW - gutter * 2;
             const step = usable / Math.max(1, cols - 1);
@@ -220,29 +271,20 @@ export default function Mindmap({ schemes }: Props) {
       fg.d3Force("forceY", null);
     }
 
-    // Tweak alpha decay so layout breathes but settles
     fg.d3AlphaDecay(0.02);
-  }, [clusterByCategory, categories.length, catIndex, dims.w, dims.h, selectedId]);
+  }, [clusterByCategory, categories, dims.w, dims.h, selectedId]);
 
-  // Canvas width (shrink when panel open)
   const graphWidth = selectedId
     ? Math.max(360, dims.w - (PANEL_W + PANEL_GAP))
     : dims.w;
 
-  // Info panel data
   const selectedScheme = selectedId
     ? schemes.find((s) => s.id === selectedId) || null
     : null;
 
   const neighborsList = useMemo(() => {
     if (!selectedId) return [];
-    const items: Array<{
-      id: string;
-      title: string;
-      category: string;
-      tags: string[];
-      why: string[];
-    }> = [];
+    const items: Array<{ id: string; title: string; category: string; tags: string[]; why: string[]; type?: Relation["type"] }> = [];
     (graph.links as any[]).forEach((l) => {
       const src = typeof l.source === "object" ? l.source.id : l.source;
       const tgt = typeof l.target === "object" ? l.target.id : l.target;
@@ -256,6 +298,7 @@ export default function Mindmap({ schemes }: Props) {
             category: s.category,
             tags: (s.tags || []).slice(0, 6),
             why: (l.why || []).slice(0, 3),
+            type: l.type,
           });
         }
       }
@@ -268,7 +311,7 @@ export default function Mindmap({ schemes }: Props) {
     return items.slice(0, 16);
   }, [selectedId, graph.links, schemes]);
 
-  // Draw node with adaptive label & degree size
+  // node draw
   const drawNode = useCallback(
     (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const id = node.id as string;
@@ -279,9 +322,8 @@ export default function Mindmap({ schemes }: Props) {
       const col = getCategoryColor(node.category as string);
 
       const degree = (graph as any).degree?.[id] ?? 0;
-      const r = Math.min(12, 6 + Math.sqrt(degree)); // degree-based size
+      const r = Math.min(12, 6 + Math.sqrt(degree));
 
-      // Circle
       ctx.beginPath();
       ctx.arc(node.x, node.y, hot ? r + 2 : r, 0, 2 * Math.PI, false);
       ctx.fillStyle = hot ? col : "rgba(255,255,255,0.22)";
@@ -290,14 +332,10 @@ export default function Mindmap({ schemes }: Props) {
       ctx.strokeStyle = col;
       ctx.stroke();
 
-      // Label rules:
-      // - always for selected/hover
-      // - if showAllLabels = true
-      // - if zoomed in enough (globalScale < 0.9 → tiny, > 1.3 → readable)
-      const mustShowLabel =
+      const mustShow =
         showAllLabels || hot || globalScale > 1.3;
 
-      if (mustShowLabel) {
+      if (mustShow) {
         const label = node.name as string;
         const maxChars = globalScale > 2.2 ? 48 : globalScale > 1.6 ? 36 : 28;
         const text = label.length > maxChars ? label.slice(0, maxChars - 1) + "…" : label;
@@ -312,13 +350,48 @@ export default function Mindmap({ schemes }: Props) {
     [highlightNodes, selectedId, hoverId, showAllLabels, graph]
   );
 
+  // link draw with “bundling”: curve via control point between category lanes
+  const linkCanvasObject = useCallback(
+    (link: any, ctx: CanvasRenderingContext2D) => {
+      if (!showEdges) return;
+
+      const src = link.source;
+      const tgt = link.target;
+      if (typeof src.x !== "number" || typeof src.y !== "number") return;
+      if (typeof tgt.x !== "number" || typeof tgt.y !== "number") return;
+
+      // relation style (color/dash)
+      const st =
+        link.type && RELATION_STYLE[link.type]
+          ? RELATION_STYLE[link.type as keyof typeof RELATION_STYLE]
+          : { color: "rgba(255,255,255,0.20)", dash: [], width: 1 };
+
+      // Bundling by category lanes: control point halfway in x, slight offset in y
+      const cx = (src.x + tgt.x) / 2;
+      const laneGap =
+        categories.indexOf(src.category) - categories.indexOf(tgt.category);
+      const cy = (src.y + tgt.y) / 2 + Math.max(-60, Math.min(60, laneGap * 18));
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash(st.dash);
+      ctx.moveTo(src.x, src.y);
+      ctx.quadraticCurveTo(cx, cy, tgt.x, tgt.y);
+      ctx.lineWidth = highlightLinks.has(link) ? st.width + 1 : st.width;
+      ctx.strokeStyle = st.color;
+      ctx.stroke();
+      ctx.restore();
+    },
+    [categories, highlightLinks, showEdges]
+  );
+
   return (
     <div
       ref={containerRef}
       className="relative w-full rounded-2xl border border-[var(--border-1)] bg-[var(--glass)] backdrop-blur"
       style={{ minHeight: 560 }}
     >
-      {/* Controls */}
+      {/* Top-left controls */}
       <div className="absolute z-10 left-3 top-3 flex flex-wrap gap-3">
         <button
           onClick={() => fgRef.current?.zoomToFit(160, 600)}
@@ -367,14 +440,47 @@ export default function Mindmap({ schemes }: Props) {
         </label>
       </div>
 
-      {/* Graph canvas */}
+      {/* Top-right search */}
+      <div className="absolute z-10 right-3 top-3 w-72">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search schemes…"
+          className="w-full px-3 py-2 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] text-sm outline-none focus:ring-2 focus:ring-[var(--focus)]"
+        />
+        {normalizedQ && searchResults.length > 0 && (
+          <div className="mt-2 max-h-64 overflow-auto rounded-lg border border-[var(--border-1)] bg-[var(--glass)]">
+            {searchResults.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => {
+                  setQ("");
+                  focusNodeById(r.id);
+                }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-white/10"
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-2 h-2 rounded-full"
+                    style={{ backgroundColor: getCategoryColor(r.category) }}
+                  />
+                  <span className="text-[var(--text-1)]">{r.title}</span>
+                </div>
+                <div className="text-xs text-[var(--text-2)]">{r.category}</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Graph */}
       <div
         className="transition-[width] duration-300 ease-out"
-        style={{ width: graphWidth, height: dims.h }}
+        style={{ width: selectedId ? Math.max(360, dims.w - (PANEL_W + PANEL_GAP)) : dims.w, height: dims.h }}
       >
         <ForceGraph2D
           ref={fgRef}
-          width={graphWidth}
+          width={selectedId ? Math.max(360, dims.w - (PANEL_W + PANEL_GAP)) : dims.w}
           height={dims.h}
           graphData={graph}
           backgroundColor="transparent"
@@ -384,17 +490,15 @@ export default function Mindmap({ schemes }: Props) {
           onBackgroundClick={onBackgroundClick}
           onNodeClick={onNodeClick}
           onNodeHover={onNodeHover}
-          // links
-          linkColor={() => (showEdges ? "rgba(255,255,255,0.2)" : "transparent")}
-          linkWidth={(link: any) => (highlightLinks.has(link) ? 2.8 : 1)}
-          linkDirectionalParticles={(link: any) => (highlightLinks.has(link) ? 2 : 0)}
-          // nodes
+          // drawing
           nodeRelSize={6}
           nodeCanvasObject={drawNode}
+          linkCanvasObjectMode={() => "after"} // ensures our custom painter runs
+          linkCanvasObject={linkCanvasObject}
         />
       </div>
 
-      {/* Right-side info panel */}
+      {/* Info panel */}
       {selectedScheme && (
         <aside
           className="absolute top-0 right-0 h-full border-l border-[var(--border-1)] bg-[var(--glass)] backdrop-blur p-4 overflow-y-auto"
@@ -427,7 +531,7 @@ export default function Mindmap({ schemes }: Props) {
             <div className="text-sm font-semibold mb-2">Linked Schemes</div>
             {neighborsList.length === 0 ? (
               <div className="text-xs text-[var(--text-2)]">
-                No links found (based on shared tags).
+                No links found (explicit relations or shared tags).
               </div>
             ) : (
               <ul className="space-y-2">
@@ -450,8 +554,16 @@ export default function Mindmap({ schemes }: Props) {
                       </span>
                     </div>
                     <div className="mt-1 text-[11px] text-[var(--text-2)]">
-                      {n.why.length ? (
-                        <>shares tags: <span className="opacity-90">{n.why.join(", ")}</span></>
+                      {n.type ? (
+                        <>
+                          relation:{" "}
+                          <span className="opacity-90">{n.type.replace("_", " ").toLowerCase()}</span>
+                        </>
+                      ) : n.why.length ? (
+                        <>
+                          shares tags:{" "}
+                          <span className="opacity-90">{n.why.join(", ")}</span>
+                        </>
                       ) : (
                         <span className="opacity-75">related by similarity</span>
                       )}
