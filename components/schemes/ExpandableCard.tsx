@@ -50,7 +50,6 @@ export default function ExpandableCard({
   }, [isOpen]);
 
   const tagSlice = useMemo(() => (scheme.tags || []).slice(0, 3), [scheme.tags]);
-const accent = getAccentColor(scheme.category);
 
   return (
     <div
