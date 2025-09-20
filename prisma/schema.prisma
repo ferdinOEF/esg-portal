@@ -1,0 +1,216 @@
+// prisma/schema.prisma
+// =====================================================
+// Prisma Client + Postgres datasource
+// =====================================================
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+
+// =====================================================
+// MindMap
+// =====================================================
+enum RelationType {
+  REQUIRES
+  ALIGNS_WITH
+  CONFLICTS_WITH
+}
+
+model Relation {
+  id        String       @id @default(cuid())
+  fromId    String
+  toId      String
+  type      RelationType
+  note      String?
+  createdAt DateTime     @default(now())
+
+  // relations
+  from      Scheme       @relation("FromRelations", fields: [fromId], references: [id], onDelete: Cascade)
+  to        Scheme       @relation("ToRelations", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@index([fromId])
+  @@index([toId])
+}
+
+
+// =====================================================
+// USER (minimal; extend to your needs)
+// =====================================================
+model User {
+  id    String  @id @default(cuid())
+  email String  @unique
+  name  String?
+
+  // Back-relations
+  memberships Membership[]
+  evidences   Evidence[]
+  assessments Assessment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =====================================================
+// FILE (minimal so Evidence relation compiles)
+// =====================================================
+model File {
+  id       String  @id @default(cuid())
+  filename String
+  url      String?
+  mimeType String?
+  size     Int?
+
+  // Back-relations
+  evidences Evidence[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =====================================================
+// REQUIREMENT (minimal so Evidence/Assessment compile)
+// =====================================================
+model Requirement {
+  id          String  @id @default(cuid())
+  title       String
+  description String?
+
+  evidences   Evidence[]
+  assessments Assessment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+// =====================================================
+// SCHEME (repository: schemes/certifications/frameworks)
+// Keep fields your UI reads (title/category/tags/mandatory/...)
+// =====================================================
+model Scheme {
+  id               String  @id @default(cuid())
+  code             String  @unique
+  title            String
+  category         String
+  issuingAuthority String?
+  mandatory        Boolean @default(false)
+
+  description String?
+  eligibility String?
+  process     String?
+  benefits    String?
+  deadlines   String?
+
+  features   String[] @default([])
+  tags       String[] @default([])
+  references Json? // [{ label,url,filename }, ...]
+
+  // Back-relations
+  companySchemes CompanyScheme[]
+
+  outgoingRelations Relation[] @relation("FromRelations")
+  incomingRelations Relation[] @relation("ToRelations")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =====================================================
+// COMPANIES MVP
+// =====================================================
+model Company {
+  id            String   @id @default(cuid())
+  name          String
+  industry      String?
+  employees     Int?
+  revenueBand   String?
+  export        Boolean  @default(false)
+  exportRegions String[] @default([])
+  tags          String[] @default([])
+
+  // Back-relations
+  schemes     CompanyScheme[]
+  memberships Membership[]
+  evidences   Evidence[]
+  assessments Assessment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CompanyScheme {
+  id String @id @default(cuid())
+
+  company   Company @relation(fields: [companyId], references: [id])
+  companyId String
+
+  scheme   Scheme @relation(fields: [schemeId], references: [id])
+  schemeId String
+
+  status   String  @default("suggested") // suggested | in-progress | compliant | not-applicable
+  notes    String?
+  priority Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =====================================================
+// MEMBERSHIP (if you have org/user roles)
+// =====================================================
+model Membership {
+  id   String @id @default(cuid())
+  role String
+
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  company   Company @relation(fields: [companyId], references: [id])
+  companyId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =====================================================
+// EVIDENCE (files tied to requirements & company)
+// =====================================================
+model Evidence {
+  id            String  @id @default(cuid())
+  requirementId String
+  uploadedById  String?
+  companyId     String
+  fileId        String?
+
+  uploadedAt DateTime @default(now())
+
+  requirement Requirement @relation(fields: [requirementId], references: [id])
+  uploadedBy  User?       @relation(fields: [uploadedById], references: [id])
+  company     Company     @relation(fields: [companyId], references: [id])
+  file        File?       @relation(fields: [fileId], references: [id])
+}
+
+// =====================================================
+// ASSESSMENT (status for a requirement at a company)
+// =====================================================
+model Assessment {
+  id            String  @id @default(cuid())
+  requirementId String
+  updatedById   String?
+  companyId     String
+
+  status String? // optional: 'pending' | 'in-progress' | 'complete'
+  notes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  requirement Requirement @relation(fields: [requirementId], references: [id])
+  updatedBy   User?       @relation(fields: [updatedById], references: [id])
+  company     Company     @relation(fields: [companyId], references: [id])
+}
