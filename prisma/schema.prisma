@@ -24,18 +24,37 @@ model User {
 }
 
 model Company {
-  id          String       @id @default(cuid())
-  name        String
-  industry    String?
-  website     String?
-  abn         String?
-  address     String?
-  phone       String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  assessments Assessment[]
-  evidences   Evidence[]
-  memberships Membership[]
+  id            String   @id @default(cuid())
+  name          String
+  industry      String?
+  employees     Int?
+  revenueBand   String?
+  export        Boolean  @default(false)
+  exportRegions String[] @default([])
+  tags          String[] @default([])
+
+  schemes     CompanyScheme[] // join table links to Scheme
+  memberships Membership[] // if you have a Membership model
+  evidences   Evidence[] // if Evidence has companyId
+  assessments Assessment[] // if Assessment has companyId
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CompanyScheme {
+  id        String  @id @default(cuid())
+  company   Company @relation(fields: [companyId], references: [id])
+  companyId String
+  scheme    Scheme  @relation(fields: [schemeId], references: [id])
+  schemeId  String
+
+  status   String  @default("suggested") // suggested | in-progress | compliant | not-applicable
+  notes    String?
+  priority Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Membership {
@@ -141,22 +160,23 @@ model Session {
 }
 
 model Scheme {
-  id               String   @id @default(cuid())
-  code             String   @unique
+  id               String          @id @default(cuid())
+  code             String          @unique
   title            String
   category         String
   issuingAuthority String?
-  mandatory        Boolean  @default(false)
+  mandatory        Boolean         @default(false)
   description      String?
   eligibility      String?
   process          String?
   benefits         String?
   deadlines        String?
-  features         String[] @default([])
-  tags             String[] @default([])
+  features         String[]        @default([])
+  tags             String[]        @default([])
   references       Json?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  companySchemes   CompanyScheme[]
 
   @@index([category])
   @@index([code])
