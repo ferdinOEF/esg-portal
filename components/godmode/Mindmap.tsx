@@ -10,8 +10,9 @@ import React, {
   useLayoutEffect,
 } from "react";
 import dynamic from "next/dynamic";
+import * as d3 from "d3-force";
 
-// IMPORTANT: use the 2D build
+// Use the 2D build
 const ForceGraph2D = dynamic(
   () => import("react-force-graph-2d").then((m) => m.default),
   { ssr: false }
@@ -29,7 +30,6 @@ type Props = {
   schemes: Scheme[];
 };
 
-// Category → color mapping (same as elsewhere)
 function getCategoryColor(category: string) {
   const map: Record<string, string> = {
     "Regulatory Frameworks (India)": "#ffb020",
@@ -49,30 +49,44 @@ function getCategoryColor(category: string) {
   return map[category] ?? "#8b9bff";
 }
 
-const PANEL_W = 360; // right info panel width
+const PANEL_W = 360;
 const PANEL_GAP = 16;
 
 export default function Mindmap({ schemes }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const fgRef = useRef<any>(null);
 
+  const [dims, setDims] = useState({ w: 1200, h: 600 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [dims, setDims] = useState({ w: 1000, h: 600 });
+  const [hoverId, setHoverId] = useState<string | null>(null);
 
-  // Resize observer → keep canvas sized to container (minus panel when open)
+  // UX toggles
+  const [clusterByCategory, setClusterByCategory] = useState(true);
+  const [showAllLabels, setShowAllLabels] = useState(false);
+  const [showEdges, setShowEdges] = useState(true);
+
+  // Observe container size (responsive)
   useLayoutEffect(() => {
     if (!containerRef.current) return;
     const ro = new ResizeObserver((entries) => {
-      for (const e of entries) {
-        const rect = e.contentRect;
-        setDims((d) => ({ ...d, w: rect.width }));
-      }
+      for (const e of entries) setDims((d) => ({ ...d, w: e.contentRect.width }));
     });
     ro.observe(containerRef.current);
     return () => ro.disconnect();
   }, []);
 
-  // Build graph: nodes + tag-based links (cross-category only)
+  // Unique categories for lane layout
+  const categories = useMemo(
+    () => Array.from(new Set(schemes.map((s) => s.category))).sort(),
+    [schemes]
+  );
+  const catIndex: Record<string, number> = useMemo(() => {
+    const m: Record<string, number> = {};
+    categories.forEach((c, i) => (m[c] = i));
+    return m;
+  }, [categories]);
+
+  // Build graph with tag-overlap edges
   const graph = useMemo(() => {
     const nodes = schemes.map((s) => ({
       id: s.id,
@@ -81,8 +95,8 @@ export default function Mindmap({ schemes }: Props) {
       mandatory: s.mandatory,
       tags: (s.tags || []).map((t) => t.toLowerCase()),
     }));
+    const links: Array<{ source: string; target: string; why?: string[]; w?: number }> = [];
 
-    const links: { source: string; target: string; why?: string[] }[] = [];
     for (let i = 0; i < schemes.length; i++) {
       for (let j = i + 1; j < schemes.length; j++) {
         const a = schemes[i];
@@ -90,18 +104,25 @@ export default function Mindmap({ schemes }: Props) {
         const ta = (a.tags || []).map((t) => t.toLowerCase());
         const tb = (b.tags || []).map((t) => t.toLowerCase());
         if (!ta.length || !tb.length) continue;
-
-        // tag overlap
         const overlap = ta.filter((t) => tb.includes(t));
         if (overlap.length && a.category !== b.category) {
-          links.push({ source: a.id, target: b.id, why: overlap.slice(0, 3) });
+          links.push({ source: a.id, target: b.id, why: overlap.slice(0, 3), w: Math.min(3, overlap.length) });
         }
       }
     }
-    return { nodes, links };
+
+    // degree centrality (for size)
+    const degree: Record<string, number> = {};
+    nodes.forEach((n) => (degree[n.id] = 0));
+    links.forEach((l) => {
+      degree[l.source] = (degree[l.source] ?? 0) + 1;
+      degree[l.target] = (degree[l.target] ?? 0) + 1;
+    });
+
+    return { nodes, links, degree };
   }, [schemes]);
 
-  // neighbor sets for highlighting + panel content
+  // Neighbor sets for focus mode
   const [highlightNodes, setHighlightNodes] = useState<Set<string>>(new Set());
   const [highlightLinks, setHighlightLinks] = useState<Set<any>>(new Set());
 
@@ -124,17 +145,17 @@ export default function Mindmap({ schemes }: Props) {
     [graph.links]
   );
 
-  const handleNodeClick = useCallback(
+  // Clicking a node focuses neighborhood
+  const onNodeClick = useCallback(
     (node: any) => {
       setSelectedId(node.id);
       const { n, el } = computeNeighbors(node.id);
       setHighlightNodes(n);
       setHighlightLinks(el);
 
-      // Zoom & center on clicked node (with panel gutter)
+      // Smooth zoom & center
       const t = 600;
       const zoom = 2.0;
-      // First, center on node
       if (typeof node.x === "number" && typeof node.y === "number") {
         fgRef.current?.centerAt(node.x, node.y, t);
         fgRef.current?.zoom(zoom, t);
@@ -143,45 +164,78 @@ export default function Mindmap({ schemes }: Props) {
     [computeNeighbors]
   );
 
-  const handleBackgroundClick = useCallback(() => {
+  // Hover—subtle highlight
+  const onNodeHover = useCallback(
+    (node: any | null) => setHoverId(node?.id ?? null),
+    []
+  );
+
+  const onBackgroundClick = useCallback(() => {
     setSelectedId(null);
     setHighlightNodes(new Set());
     setHighlightLinks(new Set());
-    // Fit graph in available area
-    fgRef.current?.zoomToFit(180, 700);
+    fgRef.current?.zoomToFit(160, 600);
   }, []);
 
-  // Fit graph on first load & whenever panel open state changes (because width changes)
+  // Refit graph when panel state changes or after mount
   useEffect(() => {
-    const id = setTimeout(() => {
-      fgRef.current?.zoomToFit(180, 700);
-    }, 300);
+    const id = setTimeout(() => fgRef.current?.zoomToFit(160, 700), 350);
     return () => clearTimeout(id);
   }, [selectedId]);
 
-  // Forces tuning
+  // Apply forces (clustering + collision + link distance)
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
-    // Pull in forces from d3-force via the instance
-    fg.d3Force("charge")?.strength(-140); // repel more
-    fg.d3Force("link")?.distance(110).strength(0.9); // tighter but readable
-    // collision via many-body approximation: use nodeRelSize & repel
-  }, []);
 
-  // Canvas dimensions: leave gutter when panel is open
+    // Link distance based on tag overlap weight (w: 1–3)
+    const linkForce = fg.d3Force("link");
+    linkForce?.distance((l: any) => 80 + 40 * (3 - (l.w || 1)));
+    linkForce?.strength(0.9);
+
+    // Repulsion + collision
+    fg.d3Force("charge", d3.forceManyBody().strength(-180));
+    fg.d3Force("collide", (d3 as any).forceCollide?.(12));
+
+    // Category lanes (forceX) to prevent a big clump
+    if (clusterByCategory) {
+      const cols = Math.max(1, categories.length);
+      fg.d3Force(
+        "forceX",
+        d3
+          .forceX((node: any) => {
+            const idx = catIndex[node.category] ?? 0;
+            const canvasW =
+              selectedId ? Math.max(320, dims.w - (PANEL_W + PANEL_GAP)) : dims.w;
+            const gutter = 24;
+            const usable = canvasW - gutter * 2;
+            const step = usable / Math.max(1, cols - 1);
+            return gutter + idx * step;
+          })
+          .strength(0.08)
+      );
+      fg.d3Force("forceY", d3.forceY(dims.h / 2).strength(0.04));
+    } else {
+      fg.d3Force("forceX", null);
+      fg.d3Force("forceY", null);
+    }
+
+    // Tweak alpha decay so layout breathes but settles
+    fg.d3AlphaDecay(0.02);
+  }, [clusterByCategory, categories.length, catIndex, dims.w, dims.h, selectedId]);
+
+  // Canvas width (shrink when panel open)
   const graphWidth = selectedId
-    ? Math.max(320, dims.w - (PANEL_W + PANEL_GAP))
+    ? Math.max(360, dims.w - (PANEL_W + PANEL_GAP))
     : dims.w;
 
-  // helpers
+  // Info panel data
   const selectedScheme = selectedId
     ? schemes.find((s) => s.id === selectedId) || null
     : null;
 
   const neighborsList = useMemo(() => {
     if (!selectedId) return [];
-    // Build neighbor items with "why" tags
     const items: Array<{
       id: string;
       title: string;
@@ -206,14 +260,57 @@ export default function Mindmap({ schemes }: Props) {
         }
       }
     });
-    // sort by category asc then title
     items.sort((a, b) =>
       a.category === b.category
         ? a.title.localeCompare(b.title)
         : a.category.localeCompare(b.category)
     );
-    return items;
+    return items.slice(0, 16);
   }, [selectedId, graph.links, schemes]);
+
+  // Draw node with adaptive label & degree size
+  const drawNode = useCallback(
+    (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      const id = node.id as string;
+      const hot =
+        highlightNodes.has(id) ||
+        id === selectedId ||
+        (hoverId && (id === hoverId || highlightNodes.has(hoverId)));
+      const col = getCategoryColor(node.category as string);
+
+      const degree = (graph as any).degree?.[id] ?? 0;
+      const r = Math.min(12, 6 + Math.sqrt(degree)); // degree-based size
+
+      // Circle
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, hot ? r + 2 : r, 0, 2 * Math.PI, false);
+      ctx.fillStyle = hot ? col : "rgba(255,255,255,0.22)";
+      ctx.fill();
+      ctx.lineWidth = hot ? 2 : 1;
+      ctx.strokeStyle = col;
+      ctx.stroke();
+
+      // Label rules:
+      // - always for selected/hover
+      // - if showAllLabels = true
+      // - if zoomed in enough (globalScale < 0.9 → tiny, > 1.3 → readable)
+      const mustShowLabel =
+        showAllLabels || hot || globalScale > 1.3;
+
+      if (mustShowLabel) {
+        const label = node.name as string;
+        const maxChars = globalScale > 2.2 ? 48 : globalScale > 1.6 ? 36 : 28;
+        const text = label.length > maxChars ? label.slice(0, maxChars - 1) + "…" : label;
+        const fontSize = Math.max(10, 12 / globalScale);
+        ctx.font = `${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto`;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "rgba(230,235,255,0.95)";
+        ctx.fillText(text, node.x + r + 6, node.y);
+      }
+    },
+    [highlightNodes, selectedId, hoverId, showAllLabels, graph]
+  );
 
   return (
     <div
@@ -222,9 +319,9 @@ export default function Mindmap({ schemes }: Props) {
       style={{ minHeight: 560 }}
     >
       {/* Controls */}
-      <div className="absolute z-10 left-3 top-3 flex gap-3">
+      <div className="absolute z-10 left-3 top-3 flex flex-wrap gap-3">
         <button
-          onClick={() => fgRef.current?.zoomToFit(180, 700)}
+          onClick={() => fgRef.current?.zoomToFit(160, 600)}
           className="px-3 py-1 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] text-xs hover:shadow-glow"
         >
           Fit
@@ -232,6 +329,7 @@ export default function Mindmap({ schemes }: Props) {
         <button
           onClick={() => {
             setSelectedId(null);
+            setHoverId(null);
             setHighlightNodes(new Set());
             setHighlightLinks(new Set());
             fgRef.current?.zoom(1, 400);
@@ -240,60 +338,59 @@ export default function Mindmap({ schemes }: Props) {
         >
           Reset
         </button>
+
+        <label className="flex items-center gap-2 text-xs px-2 py-1 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={clusterByCategory}
+            onChange={(e) => setClusterByCategory(e.target.checked)}
+          />
+          Cluster by Category
+        </label>
+
+        <label className="flex items-center gap-2 text-xs px-2 py-1 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showAllLabels}
+            onChange={(e) => setShowAllLabels(e.target.checked)}
+          />
+          Show All Labels
+        </label>
+
+        <label className="flex items-center gap-2 text-xs px-2 py-1 rounded-lg border border-[var(--border-1)] bg-[var(--glass)] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showEdges}
+            onChange={(e) => setShowEdges(e.target.checked)}
+          />
+          Show Edges
+        </label>
       </div>
 
       {/* Graph canvas */}
       <div
         className="transition-[width] duration-300 ease-out"
-        style={{
-          width: graphWidth,
-          height: dims.h,
-        }}
+        style={{ width: graphWidth, height: dims.h }}
       >
         <ForceGraph2D
           ref={fgRef}
-          graphData={graph}
           width={graphWidth}
           height={dims.h}
+          graphData={graph}
           backgroundColor="transparent"
-          onBackgroundClick={handleBackgroundClick}
-          onNodeClick={handleNodeClick}
-          cooldownTicks={80}
+          cooldownTicks={90}
           enableZoomInteraction
           enablePanInteraction
-          linkColor={() => "rgba(255,255,255,0.18)"}
+          onBackgroundClick={onBackgroundClick}
+          onNodeClick={onNodeClick}
+          onNodeHover={onNodeHover}
+          // links
+          linkColor={() => (showEdges ? "rgba(255,255,255,0.2)" : "transparent")}
           linkWidth={(link: any) => (highlightLinks.has(link) ? 2.8 : 1)}
-          linkDirectionalParticles={2}
-          linkDirectionalParticleWidth={(link: any) =>
-            highlightLinks.has(link) ? 2 : 0
-          }
+          linkDirectionalParticles={(link: any) => (highlightLinks.has(link) ? 2 : 0)}
+          // nodes
           nodeRelSize={6}
-          nodeCanvasObject={(node: any, ctx, globalScale) => {
-            const label = node.name as string;
-            const col = getCategoryColor(node.category as string);
-            const hot = highlightNodes.has(node.id);
-
-            // Node circle
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, hot ? 9 : 6, 0, 2 * Math.PI, false);
-            ctx.fillStyle = hot ? col : "rgba(255,255,255,0.22)";
-            ctx.fill();
-            ctx.lineWidth = hot ? 2 : 1;
-            ctx.strokeStyle = col;
-            ctx.stroke();
-
-            // Truncated label
-            const maxChars = 32;
-            const text =
-              label.length > maxChars ? label.slice(0, maxChars - 1) + "…" : label;
-
-            const fontSize = Math.max(10, 12 / globalScale);
-            ctx.font = `${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto`;
-            ctx.textAlign = "left";
-            ctx.textBaseline = "middle";
-            ctx.fillStyle = "rgba(230,235,255,0.95)";
-            ctx.fillText(text, node.x + 10, node.y);
-          }}
+          nodeCanvasObject={drawNode}
         />
       </div>
 
@@ -314,7 +411,6 @@ export default function Mindmap({ schemes }: Props) {
           >
             {selectedScheme.title}
           </h3>
-
           <div className="mt-1 text-xs">
             <span
               className={`px-2 py-0.5 rounded-full ${
@@ -327,16 +423,15 @@ export default function Mindmap({ schemes }: Props) {
             </span>
           </div>
 
-          {/* Neighbor list with short “why linked” bites */}
           <div className="mt-4">
             <div className="text-sm font-semibold mb-2">Linked Schemes</div>
             {neighborsList.length === 0 ? (
               <div className="text-xs text-[var(--text-2)]">
-                No explicit links (based on shared tags) found.
+                No links found (based on shared tags).
               </div>
             ) : (
               <ul className="space-y-2">
-                {neighborsList.slice(0, 12).map((n) => (
+                {neighborsList.map((n) => (
                   <li
                     key={n.id}
                     className="rounded-lg p-2 border"
@@ -345,46 +440,22 @@ export default function Mindmap({ schemes }: Props) {
                       borderColor: "var(--chip-border)",
                     }}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs text-[var(--text-2)]">
-                        <span
-                          className="inline-block w-2 h-2 rounded-full mr-2 align-middle"
-                          style={{ backgroundColor: getCategoryColor(n.category) }}
-                        />
-                        <span className="font-medium text-[var(--text-1)]">
-                          {n.title.length > 40
-                            ? n.title.slice(0, 39) + "…"
-                            : n.title}
-                        </span>
-                      </div>
+                    <div className="text-xs text-[var(--text-2)]">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full mr-2 align-middle"
+                        style={{ backgroundColor: getCategoryColor(n.category) }}
+                      />
+                      <span className="font-medium text-[var(--text-1)]">
+                        {n.title.length > 52 ? n.title.slice(0, 51) + "…" : n.title}
+                      </span>
                     </div>
                     <div className="mt-1 text-[11px] text-[var(--text-2)]">
                       {n.why.length ? (
-                        <span>
-                          shares tags:{" "}
-                          <span className="opacity-90">{n.why.join(", ")}</span>
-                        </span>
+                        <>shares tags: <span className="opacity-90">{n.why.join(", ")}</span></>
                       ) : (
                         <span className="opacity-75">related by similarity</span>
                       )}
                     </div>
-                    {n.tags.length ? (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {n.tags.map((t) => (
-                          <span
-                            key={t}
-                            className="text-[10px] px-1.5 py-0.5 rounded-full border"
-                            style={{
-                              backgroundColor: "var(--chip)",
-                              borderColor: "var(--chip-border)",
-                              color: "var(--text-2)",
-                            }}
-                          >
-                            #{t}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
                   </li>
                 ))}
               </ul>
