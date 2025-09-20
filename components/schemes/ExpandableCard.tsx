@@ -50,18 +50,27 @@ export default function ExpandableCard({
   }, [isOpen]);
 
   const tagSlice = useMemo(() => (scheme.tags || []).slice(0, 3), [scheme.tags]);
+const accent = getAccentColor(scheme.category);
 
   return (
     <div
-      className="rounded-2xl border-2 p-4 bg-[color:var(--glass)] backdrop-blur transition-all duration-200 hover:-translate-y-[1px]"
-      style={{ borderColor: accent, boxShadow: isOpen ? `0 0 24px -6px ${accent}` : "none" }}
-    >
+  className="rounded-2xl border-2 p-4 bg-[color:var(--glass)] backdrop-blur transition-all duration-200 hover:-translate-y-[1px]"
+  style={{
+    borderColor: accent,
+    boxShadow: isOpen
+      ? `inset 0 0 48px -28px ${accent}, 0 0 24px -6px ${accent}`
+      : `inset 0 0 36px -30px ${accent}`,
+  }}
+>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-[color:var(--text-1)] truncate" title={scheme.title}>
-              {scheme.title}
-            </h3>
+            <h3
+  className="font-semibold text-[color:var(--text-1)] sm:line-clamp-2 leading-snug"
+  title={scheme.title}
+>
+  {scheme.title}
+</h3>
             <span
               className="text-[10px] px-2 py-0.5 rounded"
               style={{
@@ -105,12 +114,12 @@ export default function ExpandableCard({
 
       {/* Animated details */}
       <div
-        id={regionId}
-        role="region"
-        aria-label={`${scheme.title} details`}
-        className="grid transition-all duration-200 ease-out overflow-hidden"
-        style={{ gridTemplateRows: isOpen ? "1fr" : "0fr" }}
-        onTransitionEnd={() => { if (!isOpen) setMeasuredOpen(false); }}
+      id={regionId}
+  role="region"
+  aria-label={`${scheme.title} details`}
+  className="grid transition-all duration-200 ease-out overflow-hidden xl:hidden"
+  style={{ gridTemplateRows: isOpen ? "1fr" : "0fr" }}
+  onTransitionEnd={() => { if (!isOpen) setMeasuredOpen(false); }}
       >
         <div className="min-h-0 opacity-100" style={{ opacity: isOpen ? 1 : 0 }}>
           {measuredOpen && (

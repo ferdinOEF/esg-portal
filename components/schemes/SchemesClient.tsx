@@ -1,9 +1,11 @@
+// components/schemes/SchemesClient.tsx
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import ExpandableCard from "./ExpandableCard";
 import FilterPanel from "./FilterPanel";
+import DetailPanel from "./DetailPanel";
 
 type RefItem = { label?: string; url?: string; filename?: string };
 type Scheme = {
@@ -35,7 +37,7 @@ function parseRefs(refs: unknown): RefItem[] {
   if (!refs) return [];
   if (Array.isArray(refs)) {
     return refs
-      .map((r) => (typeof r === "object" && r ? r : null))
+      .map((r) => (typeof r === "object" && r ? (r as RefItem) : null))
       .filter(Boolean) as RefItem[];
   }
   return [];
@@ -45,12 +47,14 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
   const params = useSearchParams();
   const router = useRouter();
 
+  // URL → state
   const qParam = params.get("q") ?? "";
   const catParam = params.getAll("category");
   const tagParam = params.getAll("tag");
   const mandatoryParam = params.get("mandatory");
   const openParam = params.get("open") ?? "";
 
+  // Local state
   const [q, setQ] = useState(qParam);
   const [activeCats, setActiveCats] = useState<string[]>(catParam);
   const [activeTags, setActiveTags] = useState<string[]>(tagParam);
@@ -60,6 +64,10 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
   const [open, setOpen] = useState(openParam);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // Refs for scroll-into-view of opened card
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Debounced URL sync
   useEffect(() => {
     const t = setTimeout(() => {
       const usp = new URLSearchParams();
@@ -73,6 +81,22 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
     return () => clearTimeout(t);
   }, [q, activeCats, activeTags, mandatory, open, router]);
 
+  // On mount, honor ?open= if provided
+  useEffect(() => {
+    if (openParam) setOpen(openParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When 'open' changes, scroll the opened card into view
+  useEffect(() => {
+    if (!open) return;
+    const el = itemRefs.current[open];
+    if (el?.scrollIntoView) {
+      el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    }
+  }, [open]);
+
+  // Facets
   const allCategories = useMemo(
     () => Array.from(new Set(initialSchemes.map((s) => s.category))).sort(),
     [initialSchemes]
@@ -82,6 +106,7 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
     [initialSchemes]
   );
 
+  // Filtering
   const filtered = useMemo(() => {
     const qLower = q.toLowerCase();
     return initialSchemes.filter((s) => {
@@ -105,6 +130,7 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
 
   const byCat = useMemo(() => groupBy(filtered, (s) => s.category), [filtered]);
 
+  // Actions
   function toggleCat(c: string) {
     setActiveCats((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
   }
@@ -118,11 +144,6 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
     setMandatory("all");
     setOpen("");
   }
-
-  useEffect(() => {
-    if (openParam) setOpen(openParam);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <div className="relative z-10">
@@ -185,8 +206,10 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
           </div>
         ) : null}
 
-        <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-6">
-          <aside className="hidden md:block">
+        {/* Main grid: sidebar + content */}
+        <div className="grid grid-cols-1 xl:grid-cols-[280px_1fr] gap-6">
+          {/* Sidebar filters (desktop) */}
+          <aside className="hidden xl:block">
             <FilterPanel
               allCategories={allCategories}
               allTags={allTags}
@@ -200,6 +223,7 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
             />
           </aside>
 
+          {/* Results + right-side panel area */}
           <main className="space-y-8">
             {Object.keys(byCat).length === 0 ? (
               <div className="text-sm text-[color:var(--text-2)] border border-[color:var(--border-1)] rounded-xl p-6 bg-[color:var(--glass)]">
@@ -208,16 +232,40 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
             ) : (
               Object.entries(byCat).map(([category, items]) => (
                 <section key={category} className="space-y-4">
-                  <h2 className="text-2xl font-semibold">{category}</h2>
-                  <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {items.map((s) => (
-                      <ExpandableCard
-                        key={s.id}
-                        scheme={{ ...s, references: parseRefs(s.references) }}
-                        isOpen={open === s.code}
-                        onToggle={(next) => setOpen(next ? s.code : "")}
-                      />
-                    ))}
+                  <h2 className="text-2xl font-semibold text-[color:var(--text-1)]">{category}</h2>
+
+                  {/* Cards grid (independent heights, horizontal expansion on md) */}
+                  <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
+                    {items.map((s) => {
+                      const opened = open === s.code;
+                      return (
+                        <div
+                          key={s.id}
+                          ref={(el) => { itemRefs.current[s.code] = el; }}
+                          className={opened ? "md:col-span-2 xl:col-span-1 transition-all" : "transition-all"}
+                        >
+                          <ExpandableCard
+                            scheme={{ ...s, references: parseRefs(s.references) }}
+                            isOpen={opened}
+                            onToggle={(next) => setOpen(next ? s.code : "")}
+                          />
+                        </div>
+                      );
+                    })}
+
+                    {/* Right-side inline panel: full-width row on xl for long reads */}
+                    {open ? (() => {
+                      const current = items.find((x) => x.code === open);
+                      if (!current) return null;
+                      return (
+                        <div className="hidden xl:block xl:col-span-3">
+                          <DetailPanel
+                            scheme={{ ...current, references: parseRefs(current.references) }}
+                            onClose={() => setOpen("")}
+                          />
+                        </div>
+                      );
+                    })() : null}
                   </div>
                 </section>
               ))
@@ -226,13 +274,17 @@ export default function SchemesClient({ initialSchemes }: { initialSchemes: Sche
         </div>
       </div>
 
-      {/* Mobile filter drawer */}
+      {/* Mobile/Tablet filter drawer */}
       {drawerOpen && (
         <div className="fixed inset-0 z-30">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} aria-hidden="true" />
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setDrawerOpen(false)}
+            aria-hidden="true"
+          />
           <div className="absolute right-0 top-0 h-full w-[85%] max-w-sm bg-[color:var(--bg-1)] border-l border-[color:var(--border-1)] shadow-xl p-4 overflow-y-auto">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-medium">Filters</h3>
+              <h3 className="text-base font-medium text-[color:var(--text-1)]">Filters</h3>
               <button onClick={() => setDrawerOpen(false)} className="text-sm underline">Close</button>
             </div>
             <FilterPanel
